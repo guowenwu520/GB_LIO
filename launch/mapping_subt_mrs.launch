@@ -1,0 +1,26 @@
+<launch>
+    <!-- Launch file for velodyne16 VLP-16 LiDAR -->
+
+    <arg name="rviz" default="true"/>
+    <arg name="debug" default="false"/>
+    <arg name="from_packets" default="false"/>
+    <arg name="bag_path" default=""/>
+
+    <rosparam command="load" file="$(find state_estimation)/config/subt_mrs_velodyne.yaml"/>
+
+    <group if="$(eval arg('debug') == False)">
+        <node pkg="state_estimation" type="state_estimation_node" name="state_estimation_node" output="screen"/>
+    </group>
+
+    <!--- package to Velodyne -->
+    <!-- <node pkg="state_estimation" type="package_to_pointcloud2" name="package_to_pointcloud2" output="screen"/> -->
+
+    <group if="$(arg rviz)">
+        <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz"
+              args="-d $(find state_estimation)/config/rviz_cfg/rs16.rviz"/>
+    </group>
+    <group if="$(arg rviz)">
+        <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz_raw"
+              args="-d $(find state_estimation)/config/rviz_cfg/raw_rs16.rviz"/>
+    </group>
+</launch>
