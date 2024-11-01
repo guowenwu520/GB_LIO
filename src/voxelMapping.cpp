@@ -119,7 +119,6 @@ vector<double>       extrinR_encoder(9, 0.0);
 deque<double>                     time_buffer;
 deque<PointCloudXYZI::Ptr>        lidar_buffer;
 deque<sensor_msgs::Imu::ConstPtr> imu_buffer;
-deque<nav_msgs::Odometry::ConstPtr> encoder_buffer;
 
 PointCloudXYZI::Ptr featsFromMap(new PointCloudXYZI());
 PointCloudXYZI::Ptr feats_undistort(new PointCloudXYZI());
@@ -383,11 +382,6 @@ void imu_cbk(const sensor_msgs::Imu::ConstPtr &msg_in)
     imu_buffer.push_back(msg);
     mtx_buffer.unlock();
     sig_buffer.notify_all();
-}
-
-void encoder_cbk(const nav_msgs::Odometry::ConstPtr &msg_in)
-{
-    encoder_buffer.push_back(msg_in);
 }
 
 double lidar_mean_scantime = 0.0;
@@ -875,115 +869,14 @@ void observation_model_share(state_ikfom &s, esekfom::dyn_share_datastruct<doubl
     // std::printf("ef_num: %d\n", effct_feat_num);
 }
 
-nav_msgs::Odometry uncoupled_encoder_fusion(double time_odom, const state_ikfom &state)
-{
-    nav_msgs::Odometry result_odom;
-    result_odom.header.frame_id = "camera_init";
-    result_odom.child_frame_id = "encoder_body";
-    result_odom.header.stamp = ros::Time().fromSec(time_odom);
-
-    if (time_odom <= 0) {
-        ROS_WARN("First frame, return.");
-        result_odom.child_frame_id = "-1";
-        return result_odom;
-    }
-    // 如果没有encoder数据或者odom数据太早 直接返回
-    if (encoder_buffer.empty() || time_odom < encoder_buffer.front()->header.stamp.toSec()) {
-        // ROS_WARN("No encoder data or odometry data too early!");
-        result_odom.child_frame_id = "-1";
-        return result_odom;
-    }
-    // 如果encoder数据太晚，需要等待或者直接drop
-    if (encoder_buffer.back()->header.stamp.toSec() < time_odom) {
-        ROS_WARN("Odometry data too late, need wait for encoder! %f, %f",
-                 encoder_buffer.back()->header.stamp.toSec(), time_odom);
-        result_odom.child_frame_id = "-2";
-        return result_odom;
-    }
-    bool found = false;
-    // 找到距离time最近的前后两帧encoder数据
-    for (auto it = encoder_buffer.begin(); it != encoder_buffer.end() - 1; it++) {
-        double time_encoder_head = (*it)->header.stamp.toSec();
-        double time_encoder_tail = (*(it + 1))->header.stamp.toSec();
-        if (time_odom <= time_encoder_tail) {
-            // find encoder poses previous and next to current odometry
-            found = true;
-            SO3 encoder_head = SO3(
-                    (*it)->pose.pose.orientation.w,
-                    (*it)->pose.pose.orientation.x,
-                    (*it)->pose.pose.orientation.y,
-                    (*it)->pose.pose.orientation.z);
-            SO3 encoder_tail = SO3(
-                    (*(it + 1))->pose.pose.orientation.w,
-                    (*(it + 1))->pose.pose.orientation.x,
-                    (*(it + 1))->pose.pose.orientation.y,
-                    (*(it + 1))->pose.pose.orientation.z);
-
-            // slerp to align the encoder measurements with odometry
-            SO3 R_base_o_encoder = encoder_head.slerp(
-                    (time_odom - time_encoder_head) / (time_encoder_tail - time_encoder_head), encoder_tail);
-            SO3 R_encoder_o_base = (R_base_o_encoder * R_encoder_o_zero_point).inverse();
-
-            // lidar w.r.t odom(camera_init) pose
-            SO3 R_odom_o_lidar = state.rot * state.offset_R_L_I;
-            V3D t_odom_o_lidar = state.rot * state.offset_T_L_I + state.pos;
-
-            // R_odom_o_lidar * (R_lidar_o_encoder * R_encoder_o_base + t_lidar_o_encoder) + t_odom_o_lidar
-            SO3 R_odom_o_base = R_odom_o_lidar * R_lidar_o_encoder * R_encoder_o_base;
-            V3D t_odom_o_base = R_odom_o_lidar * t_lidar_o_encoder + t_odom_o_lidar;
-
-            /*
-            // debug information
-            auto euler_head = encoder_head.toRotationMatrix().eulerAngles(0, 1, 2);
-            auto euler_tail = encoder_tail.toRotationMatrix().eulerAngles(0, 1, 2);
-            auto euler_slerp = R_base_o_encoder.toRotationMatrix().eulerAngles(0, 1, 2);
-
-            std::printf("\n\n\n");
-            std::printf("head: %.7f -> %.3f %.3f %.3f\n",
-                        time_encoder_head, euler_head[0], euler_head[1], euler_head[2]);
-            std::printf("tail: %.7f -> %.3f %.3f %.3f\n",
-                        time_encoder_tail, euler_tail[0], euler_tail[1], euler_tail[2]);
-            std::printf("odom: %.7f -> %.3f %.3f %.3f\n",
-                        time_odom, euler_slerp[0], euler_slerp[1], euler_slerp[2]);
-            std::printf("Q front: %.7f, Q back: %.3f, Q size: %ld\n",
-                        encoder_buffer.front()->header.stamp.toSec(),
-                        encoder_buffer.back()->header.stamp.toSec(),
-                        encoder_buffer.size());
-            */
-
-            result_odom.pose.pose.orientation.w = R_odom_o_base.w();
-            result_odom.pose.pose.orientation.x = R_odom_o_base.x();
-            result_odom.pose.pose.orientation.y = R_odom_o_base.y();
-            result_odom.pose.pose.orientation.z = R_odom_o_base.z();
-            result_odom.pose.pose.position.x = t_odom_o_base.x();
-            result_odom.pose.pose.position.y = t_odom_o_base.y();
-            result_odom.pose.pose.position.z = t_odom_o_base.z();
-            break;
-        }
-    }
-    // clear up encoder queue
-    // XXX may need lock？
-    double time_encoder = encoder_buffer.front()->header.stamp.toSec();
-    while (time_encoder < time_odom - 0.1 && !encoder_buffer.empty()) {
-        encoder_buffer.pop_front();
-        time_encoder = encoder_buffer.front()->header.stamp.toSec();
-    }
-    // std::printf("After Q clean up, size: %ld\n", encoder_buffer.size());
-
-    return result_odom;
-}
-
-
 /*** ROS subscribe initialization ***/
 ros::Subscriber sub_pcl;
 ros::Subscriber sub_imu;
-ros::Subscriber sub_encoder;
 ros::Publisher pubLaserCloudFull;
 ros::Publisher pubLaserCloudFull_body;
 ros::Publisher pubLaserCloudEffect;
 ros::Publisher pubLaserCloudMap;
 ros::Publisher pubOdomAftMapped;
-ros::Publisher pubOdomEncoderBody;
 ros::Publisher pubExtrinsic;
 ros::Publisher pubPath;
 ros::Publisher voxel_map_pub;
@@ -1074,7 +967,8 @@ void execute(){
     /*** downsample the feature points in a scan ***/
     downSizeFilterSurf.setInputCloud(feats_undistort);
     downSizeFilterSurf.filter(*feats_down_body);
-
+    std::cout << "feats size:" << feats_undistort->size()
+                      << ", down size:" << feats_down_body->size() << std::endl;
     // 如果首次下采样点数量还是太多(一般是大场景,不需要这么多点) 那么就adaptive 再次下采样
     if (adaptive_voxelization) {
         size_t feats_down_size_first = feats_down_body->points.size();
@@ -1192,20 +1086,6 @@ void execute(){
                       voxel_map);
     double t_update_end = omp_get_wtime();
     sum_update_time += t_update_end - t_update_start;
-    // ===============================================================================================================
-    // fuse encoder angles with odometry, transform odomtry to a fixed frame (w.r.t carrier)
-    if (encoder_fusion_en){
-        nav_msgs::Odometry odometry_encoder_body =
-                uncoupled_encoder_fusion(lidar_end_time_prev, state_point_prev);
-        // XXX: use previous frame to avoid the high probability of odometry fall outside of encoder queue
-        // TODO: perform encoder fusion in seperated thread with fixed frequency
-        state_point_prev = kf.get_x();
-        lidar_end_time_prev = lidar_end_time;
-        if (!(odometry_encoder_body.child_frame_id == "-1" || odometry_encoder_body.child_frame_id == "-2"))
-        {
-            pubOdomEncoderBody.publish(odometry_encoder_body);
-        }
-    }
     scan_index++;
     // ===============================================================================================================
     // 可视化相关
@@ -1318,7 +1198,6 @@ int main(int argc, char** argv)
 
     nh.param<string>("common/lid_topic",lid_topic,"/livox/lidar");
     nh.param<string>("common/imu_topic", imu_topic,"/livox/imu");
-    nh.param<string>("common/encoder_topic", encoder_topic,"/encoder");
     nh.param<bool>("common/time_sync_en", time_sync_en, false);
 
     // mapping algorithm params
@@ -1367,10 +1246,11 @@ int main(int argc, char** argv)
     nh.param<int>("preprocess/point_filter_num", p_pre->point_filter_num, 1);
     nh.param<bool>("preprocess/feature_extract_enable", p_pre->feature_enabled, false);
     cout<<"p_pre->lidar_type "<<p_pre->lidar_type<<endl;
+    //全是[5,5,5,5,5]
     for (int i = 0; i < layer_point_size.size(); i++) {
         layer_size.push_back(layer_point_size[i]);
     }
-
+    //path初始化，并指定坐标系
     path.header.stamp    = ros::Time::now();
     path.header.frame_id ="camera_init";
 
@@ -1378,36 +1258,32 @@ int main(int argc, char** argv)
     int effect_feat_num = 0, frame_num = 0;
     bool flg_EKF_converged, EKF_stop_flg = 0;
     scan_index = 0;
-
+    //没有使用到
     _featsArray.reset(new PointCloudXYZI());
-
-    memset(point_selected_surf, true, sizeof(point_selected_surf));
-    memset(res_last, -1000.0f, sizeof(res_last));
+    
+    // 初始化两个数组
+    std::fill(std::begin(point_selected_surf), std::end(point_selected_surf), true);
+    std::fill(std::begin(res_last), std::end(res_last), -1000.0f);
+    // 初始化下采样滤波器
     downSizeFilterSurf.setLeafSize(filter_size_surf_min, filter_size_surf_min, filter_size_surf_min);
-    memset(point_selected_surf, true, sizeof(point_selected_surf));
-    memset(res_last, -1000.0f, sizeof(res_last));
-
+    // memset(point_selected_surf, true, sizeof(point_selected_surf));
+    // memset(res_last, -1000.0f, sizeof(res_last));
+    // 初始化IMU的RT矩阵和
     Lidar_T_wrt_IMU<<VEC_FROM_ARRAY(extrinT);
     Lidar_R_wrt_IMU<<MAT_FROM_ARRAY(extrinR);
+    // 设置 IMU 的外部参数，包括位置（平移向量）和方向（旋转矩阵）
     p_imu->set_extrinsic(Lidar_T_wrt_IMU, Lidar_R_wrt_IMU);
+    // 设置陀螺仪的协方差值。V3D 可能是一个三维向量类型，用于表示陀螺仪的噪声特性。
     p_imu->set_gyr_cov(V3D(gyr_cov, gyr_cov, gyr_cov));
+    // 设置加速度计的协方差值，方式与陀螺仪相似。
     p_imu->set_acc_cov(V3D(acc_cov, acc_cov, acc_cov));
+    // 设置陀螺仪偏置的协方差值，反映陀螺仪偏置的不确定性。
     p_imu->set_gyr_bias_cov(V3D(b_gyr_cov, b_gyr_cov, b_gyr_cov));
+    // 设置加速度计偏置的协方差值，反映加速度计偏置的不确定性
     p_imu->set_acc_bias_cov(V3D(b_acc_cov, b_acc_cov, b_acc_cov));
+    // 是否使用当前姿态来初始化重力
     p_imu->set_init_gravity_with_pose(init_gravity_with_pose);
 
-    // calc encoder w.r.t lidar extrinsic
-    M3D MAT_R_encoder_o_lidar;
-    V3D t_encoder_o_lidar;
-    t_encoder_o_lidar<<VEC_FROM_ARRAY(extrinT_encoder);
-    MAT_R_encoder_o_lidar<<MAT_FROM_ARRAY(extrinR_encoder);
-    SO3 R_encoder_o_lidar = MAT_R_encoder_o_lidar;
-    // inverse for convenient
-    R_lidar_o_encoder = R_encoder_o_lidar.inverse();
-    t_lidar_o_encoder = -(R_lidar_o_encoder * t_encoder_o_lidar);
-    // encoder zero-point offset
-    R_encoder_o_zero_point = Eigen::AngleAxisd(
-            encoder_zeropoint_offset_deg / 180.0 * M_PI, V3D::UnitZ());
 
     double epsi[23] = {0.001};
     fill(epsi, epsi+23, 0.001);
@@ -1418,13 +1294,11 @@ int main(int argc, char** argv)
         nh.subscribe(lid_topic, 200000, livox_pcl_cbk) : \
         nh.subscribe(lid_topic, 200000, standard_pcl_cbk);
     sub_imu = nh.subscribe(imu_topic, 200000, imu_cbk);
-    sub_encoder = nh.subscribe(encoder_topic, 200000, encoder_cbk);
     pubLaserCloudFull = nh.advertise<sensor_msgs::PointCloud2>("/cloud_registered", 100000);
     pubLaserCloudFull_body = nh.advertise<sensor_msgs::PointCloud2>("/cloud_registered_body", 100000);
     pubLaserCloudEffect = nh.advertise<sensor_msgs::PointCloud2>("/cloud_effected", 100000);
     pubLaserCloudMap = nh.advertise<sensor_msgs::PointCloud2>("/Laser_map", 100000);
     pubOdomAftMapped = nh.advertise<nav_msgs::Odometry>("/Odometry", 100000);
-    pubOdomEncoderBody = nh.advertise<nav_msgs::Odometry>("/Encoder", 100000);
     pubExtrinsic = nh.advertise<nav_msgs::Odometry>("/Extrinsic", 100000);
     pubPath = nh.advertise<nav_msgs::Path>("/path", 100000);
     voxel_map_pub = nh.advertise<visualization_msgs::MarkerArray>("/planes", 10000);
