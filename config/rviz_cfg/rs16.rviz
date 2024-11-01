@@ -4,6 +4,7 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
+        - /Global Options1
         - /mapping1
         - /mapping1/currPoints1
         - /mapping1/currPoints1/Autocompute Value Bounds1
@@ -340,7 +341,7 @@ Visualization Manager:
   Global Options:
     Background Color: 0; 0; 0
     Default Light: true
-    Fixed Frame: camera_init
+    Fixed Frame: body
     Frame Rate: 40
   Name: root
   Tools:
@@ -364,7 +365,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 17.770292282104492
+      Distance: 60.65070724487305
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -380,9 +381,9 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: -0.5646018981933594
+      Pitch: 0.18539808690547943
       Target Frame: camera_init
-      Yaw: 2.648582696914673
+      Yaw: 1.9585822820663452
     Saved: ~
 Window Geometry:
   Displays:
@@ -403,4 +404,4 @@ Window Geometry:
     collapsed: false
   Width: 1884
   X: 314
-  Y: 134
+  Y: 101

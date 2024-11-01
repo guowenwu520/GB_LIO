@@ -3,7 +3,6 @@ common:
     lid_topic:  "/velodyne_points"
 #    imu_topic:  "/imu/data"
     imu_topic:  "/imu/data"
-    encoder_topic:  "/imu/encoder"
     time_sync_en: false         # ONLY turn on when external time synchronization is really not possible
     
 preprocess:
@@ -36,13 +35,6 @@ mapping:
     extrinsic_R: [0, -1, 0,
                   -1, 0, 0,
                   0, 0, -1]
-
-    encoder_fusion_en: true     # true: enable encoder angle fusion,
-    extrinsic_T_encoder_lidar:  [0.00581, 0.01437, 0.10497]
-    extrinsic_R_encoder_lidar: [3.63e-05, 0.0001935, 1.0,
-                                0.999992, -0.004, -3.56e-05,
-                                0.004, 0.999992, -0.0001937]
-    encoder_offset_deg: -60
                 
 
 noise_model:

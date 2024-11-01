@@ -2,7 +2,6 @@
 common:
     lid_topic:  "/livox/lidar"
     imu_topic:  "/zed2/zed_node/imu/data"
-    encoder_topic:  "/imu/encoder"
     time_sync_en: false         # ONLY turn on when external time synchronization is really not possible
 
 preprocess:
@@ -33,12 +32,6 @@ mapping:
                  0, 1, 0,
                  0, 0, 1 ]
 
-    encoder_fusion_en: true     # true: enable encoder angle fusion,
-    extrinsic_T_encoder_lidar:  [-0.0042, 0.0046, 0.09994]
-    extrinsic_R_encoder_lidar: [-0.0002004, 3.04e-05, 1.0,
-                                0.0040013, 0.999992, -2.96e-05,
-                                -0.999992, 0.0040013, -0.0002005]
-    encoder_offset_deg: 120
 
 noise_model:
     ranging_cov: 0.02
