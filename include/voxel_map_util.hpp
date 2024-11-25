@@ -8,6 +8,9 @@
 //#include <execution>
 #include <openssl/md5.h>
 #include <pcl/common/io.h>
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl/io/pcd_io.h>
 #include <rosbag/bag.h>
 #include <stdio.h>
 #include <string>
@@ -19,8 +22,14 @@
 #define MAX_N 10000000000
 
 static int plane_id = 0;
+static int VOXEL_OFFSET[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
 
 state_ikfom current_state_point;
+
+bool merge_mode = false;
+float MERGE_DISTANCE_THRESHOLD = 0.03;
+float MERGE_BIAS_THRESHOLD = 0.8;
+int MERGE_INTENSITY_DIFF = 30;
 
 // a point to plane matching structure
 typedef struct ptpl {
@@ -43,6 +52,7 @@ typedef struct pointWithCov {
   Eigen::Vector3d point;
   Eigen::Vector3d point_world;
   Eigen::Matrix3d cov;
+  float intensity;
   Eigen::Matrix3d cov_lidar;
 } pointWithCov;
 
@@ -56,6 +66,7 @@ typedef struct Plane {
   Eigen::Matrix3d covariance;
   Eigen::Matrix<double, 6, 6> plane_cov;
   float radius = 0;
+  float intensity;
   float min_eigen_value = 1;
   float mid_eigen_value = 1;
   float max_eigen_value = 1;
@@ -109,6 +120,40 @@ typedef struct Plane {
             normal(1) * center(1) +
             normal(2) * center(2));
   }
+
+   void update_all_parameters_from_plane(Plane* new_plane_ptr) {
+        if (!new_plane_ptr) {
+            std::cerr << "null pointer in update_all_parameters_from_plane" << std::endl;
+            return;
+        }
+
+        center = new_plane_ptr->center;
+
+        normal = new_plane_ptr->normal;
+
+        x_normal = new_plane_ptr->x_normal;
+        y_normal = new_plane_ptr->y_normal;
+
+        min_eigen_value = new_plane_ptr->min_eigen_value;
+        mid_eigen_value = new_plane_ptr->mid_eigen_value;
+        max_eigen_value = new_plane_ptr->max_eigen_value;
+
+        radius = new_plane_ptr->radius;
+
+        d = new_plane_ptr->d;
+
+        points_size = new_plane_ptr->points_size;
+
+        covariance = new_plane_ptr->covariance;
+        plane_cov = new_plane_ptr->plane_cov;
+
+        is_plane = new_plane_ptr->is_plane;
+        is_init = new_plane_ptr->is_init;
+        is_update = new_plane_ptr->is_update;
+        update_enable = new_plane_ptr->update_enable;
+        last_update_points_size = new_plane_ptr->points_size;
+  }
+
 } Plane;
 
 class VOXEL_LOC {
@@ -206,8 +251,10 @@ public:
     for (auto pv : points) {
       plane->covariance += pv.point * pv.point.transpose();
       plane->center += pv.point;
+      plane->intensity += pv.intensity;
     }
     plane->center = plane->center / plane->points_size;
+    plane->intensity = plane->intensity / plane->points_size;
     plane->covariance = plane->covariance / plane->points_size -
                         plane->center * plane->center.transpose();
     Eigen::EigenSolver<Eigen::Matrix3d> es(plane->covariance);
@@ -227,8 +274,8 @@ public:
     J_Q << 1.0 / plane->points_size, 0, 0, 0, 1.0 / plane->points_size, 0, 0, 0,
         1.0 / plane->points_size;
     if (evalsReal(evalsMin) < planer_threshold_) {
-      std::vector<int> index(points.size());
-      std::vector<Eigen::Matrix<double, 6, 6>, Eigen::aligned_allocator<Eigen::Matrix<double, 6, 6>>> temp_matrix(points.size());
+      // std::vector<int> index(points.size());
+      // std::vector<Eigen::Matrix<double, 6, 6>, Eigen::aligned_allocator<Eigen::Matrix<double, 6, 6>>> temp_matrix(points.size());
       for (int i = 0; i < points.size(); i++) {
         Eigen::Matrix<double, 6, 3> J;
         Eigen::Matrix3d F;
@@ -435,7 +482,7 @@ public:
         // 如果点数未超过最大收敛要求点数，可以更新平面参数
         if (update_enable_) {
           // 计算当前视线到第一平面法线的夹角
-          double cos_normal_viewvector = plane_ptr_->calc_normal_viewpoint_cos(current_state_point.pos);
+          // double cos_normal_viewvector = plane_ptr_->calc_normal_viewpoint_cos(current_state_point.pos);
           // new_points_num_和 all_points_num_是同一个量，只不过new_points_num_是滚动计数
           new_points_num_++;
           all_points_num_++;
@@ -684,6 +731,100 @@ void buildVoxelMap(const std::vector<pointWithCov> &input_points,
 //        }
 //    }
 //}
+int merge_count = 0;
+
+bool merge_plane(Plane *p1,Plane *p2){
+    if(p1->intensity >200 || p2->intensity >200){
+        return false;
+    }
+    V3D abd_bias = (p1->normal - p2->normal).cwiseAbs();
+    double m_distance = sqrt(abd_bias.transpose() * (p2->covariance + p1->covariance).inverse() * abd_bias);
+    float m_intensity = abs(p1->intensity - p2->intensity);
+    float m_bi = max(p1->intensity, p2->intensity)/100.0;
+    float th=0.05;
+    if (m_intensity < MERGE_INTENSITY_DIFF 
+         &&(abd_bias[0] < MERGE_BIAS_THRESHOLD*m_bi && abd_bias[1] < MERGE_BIAS_THRESHOLD*m_bi) 
+         && m_distance < MERGE_DISTANCE_THRESHOLD*m_bi) {
+        // std::cout<<"Plane1 intensity: "<<p1->intensity<<"  Plane2 intensity: "<<p2->intensity<<" bias th = "<<MERGE_BIAS_THRESHOLD*m_bi <<" distance th  = "<<MERGE_DISTANCE_THRESHOLD*m_bi<<std::endl;
+        Plane* merged = new Plane;
+        int total_points = p1->points_size + p2->points_size;
+
+        if(total_points<=0)return false;
+
+        merged->center = (p1->center * p1->points_size + p2->center * p2->points_size) / total_points;
+
+        merged->normal = (p1->normal * p1->points_size + p2->normal * p2->points_size) / total_points;
+      
+        if(abs(merged->normal[2]) <= th && abs(merged->normal[1]) <= th){
+            merged->normal[2] = 0.0;        
+             merged->normal[1] = 0.0;
+        }
+          if(abs(merged->normal[0]) <= th && abs(merged->normal[1]) <= th){
+            merged->normal[0] = 0.0;        
+             merged->normal[1] = 0.0;
+        }
+          if(abs(merged->normal[2]) <= th && abs(merged->normal[0]) <= th){
+            merged->normal[2] = 0.0;        
+             merged->normal[0] = 0.0;
+        }
+        
+        // merged->normal.normalize();
+        merged->covariance = (p1->covariance * p1->points_size + p2->covariance * p2->points_size) / total_points;
+
+        merged->min_eigen_value = (p1->min_eigen_value * p1->points_size + p2->min_eigen_value * p2->points_size) / total_points;
+        merged->mid_eigen_value = (p1->mid_eigen_value * p1->points_size + p2->mid_eigen_value * p2->points_size) / total_points;
+        merged->max_eigen_value = (p1->max_eigen_value * p1->points_size + p2->max_eigen_value * p2->points_size) / total_points;
+
+        merged->x_normal = (p1->x_normal * p1->points_size + p2->x_normal * p2->points_size) / total_points;
+        merged->y_normal = (p1->y_normal * p1->points_size + p2->y_normal * p2->points_size) / total_points;
+
+        merged->radius = (p1->radius * p1->points_size + p2->radius * p2->points_size) / total_points;
+        merged->d = -(merged->normal(0) * merged->center(0) +
+                    merged->normal(1) * merged->center(1) +
+                    merged->normal(2) * merged->center(2));
+
+        merged->points_size = total_points;
+
+        merged->is_plane = p1->is_plane && p2->is_plane;
+        merged->is_init = p1->is_init || p2->is_init;
+        merged->id = p1->id;
+        merged->is_update = p1->is_update && p2->is_update;
+        merged->update_enable = p1->update_enable && p2->update_enable;
+
+        merged->last_update_points_size = p1->last_update_points_size + p2->last_update_points_size;
+        
+        p1->update_all_parameters_from_plane(merged);
+        p2->update_all_parameters_from_plane(merged);
+        delete merged;
+        return true;    
+    }
+    return false;
+}
+// std::unordered_map<VOXEL_LOC, OctoTree *> delete_map;
+// 合并voxel map
+void merge_voxel_map(std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map,VOXEL_LOC &position){
+        for (int i = 0; i < 6; i++) {
+          VOXEL_LOC near_position((int64_t)VOXEL_OFFSET[i][0]+position.x, (int64_t)VOXEL_OFFSET[i][1]+position.y,
+                       (int64_t)VOXEL_OFFSET[i][2]+position.z);
+          auto near_voxel = feat_map.find(near_position);
+          if (near_voxel != feat_map.end() && near_voxel->second->plane_ptr_->is_plane) {
+              auto current_voxel = feat_map.find(position);
+              bool is_merge_successs = merge_plane(current_voxel->second->plane_ptr_,near_voxel->second->plane_ptr_);
+              if(is_merge_successs){
+                 merge_count++;
+
+                //  delete near_voxel->second->plane_ptr_; 
+                //  near_voxel->second->plane_ptr_ = nullptr;
+                //  delete current_voxel->second->plane_ptr_; 
+                //  current_voxel->second->plane_ptr_ = nullptr;
+
+                
+                // std::cout << "near_voxel merge_radius " << near_voxel->second->plane_ptr_->radius << " merge_d " << near_voxel->second->plane_ptr_->d << std::endl;
+                // std::cout << "current_voxel merge_radius " << current_voxel->second->plane_ptr_->radius << " merge_d " << current_voxel->second->plane_ptr_->d << std::endl;
+              }
+           }
+        }
+}
 
 void updateVoxelMapOMP(const std::vector<pointWithCov> &input_points,
                     const float voxel_size, const int max_layer,
@@ -691,8 +832,7 @@ void updateVoxelMapOMP(const std::vector<pointWithCov> &input_points,
                     const int max_points_size, const int max_cov_points_size,
                     const float planer_threshold,
                     std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map) {
-
-  std::unordered_map<VOXEL_LOC, vector<pointWithCov>> position_index_map;
+  // std::unordered_map<VOXEL_LOC, vector<pointWithCov>> position_index_map;
   int insert_count = 0, update_count = 0;
   uint plsize = input_points.size();
 
@@ -714,9 +854,13 @@ void updateVoxelMapOMP(const std::vector<pointWithCov> &input_points,
     // 如果点的位置已经存在voxel 那么就更新点的位置 否则创建新的voxel
     if (iter != feat_map.end()) {
       // 更新的点总是很多 先缓存 再延迟并行更新
-      update_count++;
-      position_index_map[position].push_back(p_v);
+      feat_map[position]->UpdateOctoTree(p_v);
+      // update_count++;
     } else {
+      // auto iter = delete_map.find(position);
+      // if (iter != feat_map.end()) {
+      //   continue;
+      // }
       // 插入的点总是少的 直接单线程插入
       // 保存position位置对应的点
       insert_count++;
@@ -730,31 +874,36 @@ void updateVoxelMapOMP(const std::vector<pointWithCov> &input_points,
       feat_map[position]->voxel_center_[2] = (0.5 + position.z) * voxel_size;
       feat_map[position]->UpdateOctoTree(p_v);
     }
-  }
-  double t_insert_end = omp_get_wtime();
-  double t_update_start = omp_get_wtime();
-    // 并行延迟更新
-#ifdef MP_EN
-    omp_set_num_threads(MP_PROC_NUM);
-#pragma omp parallel for default(none) shared(position_index_map, feat_map)
-#endif
-    for (size_t b = 0; b < position_index_map.bucket_count(); b++) {
-        // 先遍历bucket 理想情况下bucket一般只有一个元素 这样还是相当于完全并行的遍历position_index_map
-        // XXX 需要确定最坏情况下bucket的元素数量
-        for (auto bi = position_index_map.begin(b); bi != position_index_map.end(b); bi++) {
-            VOXEL_LOC position = bi->first;
-            for (const pointWithCov &p_v:bi->second) {
-                feat_map[position]->UpdateOctoTree(p_v);
-            }
-        }
+
+    if(merge_mode && feat_map[position]->plane_ptr_->is_plane){
+        merge_voxel_map(feat_map, position);
+       std::cout<<"merge  size "<<merge_count <<std::endl;
     }
-    double t_update_end = omp_get_wtime();
+  }
+
+  double t_insert_end = omp_get_wtime();
+  // double t_update_start = omp_get_wtime();
+    // 并行延迟更新
+// #ifdef MP_EN
+//     omp_set_num_threads(MP_PROC_NUM);
+// #pragma omp parallel for default(none) shared(position_index_map, feat_map)
+// #endif
+    // for (size_t b = 0; b < position_index_map.bucket_count(); b++) {
+    //     // 先遍历bucket 理想情况下bucket一般只有一个元素 这样还是相当于完全并行的遍历position_index_map
+    //     // XXX 需要确定最坏情况下bucket的元素数量
+    //     for (auto bi = position_index_map.begin(b); bi != position_index_map.end(b); bi++) {
+    //         VOXEL_LOC position = bi->first;
+    //         for (const pointWithCov &p_v:bi->second) {
+    //             feat_map[position]->UpdateOctoTree(p_v);
+    //         }
+    //     }
+    // }
+    // double t_update_end = omp_get_wtime();
 //    std::printf("Insert & store:  %.4fs  Update:  %.4fs  |  Inserted: %d  Updated: %d \n",
 //                t_insert_end - t_insert_start,
 //                t_update_end - t_update_start,
 //                insert_count, update_count);
 }
-
 
 void build_single_residual(const pointWithCov &pv, const OctoTree *current_octo,
                            const int current_layer, const int max_layer,
@@ -1255,6 +1404,26 @@ void pubSinglePlane(visualization_msgs::MarkerArray &plane_pub,
     plane_pub.markers.push_back(plane);
 }
 
+void saveMarkerArrayToPCD(const visualization_msgs::MarkerArray& voxel_plane, const std::string& filename) {
+    pcl::PointCloud<pcl::PointXYZ> cloud;
+
+    for (const auto& marker : voxel_plane.markers) {
+        for (const auto& point : marker.points) {
+            pcl::PointXYZ pcl_point;
+            pcl_point.x = point.x;
+            pcl_point.y = point.y;
+            pcl_point.z = point.z;
+            cloud.points.push_back(pcl_point);
+        }
+    }
+
+    cloud.width = cloud.points.size();
+    cloud.height = 1;
+    cloud.is_dense = true;
+
+    pcl::io::savePCDFileASCII(filename, cloud);
+    ROS_INFO("Saved %zu points to %s", cloud.points.size(), filename.c_str());
+}
 
 void pubVoxelMap(const std::unordered_map<VOXEL_LOC, OctoTree *> &voxel_map,
                  const int pub_max_voxel_layer,
@@ -1290,9 +1459,11 @@ void pubVoxelMap(const std::unordered_map<VOXEL_LOC, OctoTree *> &voxel_map,
         pubSinglePlane(voxel_plane, "plane", pub_plane_list[i], alpha, plane_rgb);
     }
   }
+  // saveMarkerArrayToPCD(voxel_plane, "/home/guowenwu/workspace/Indoor_SLAM/alpha_ws/voxel_plane.pcd");
   plane_map_pub.publish(voxel_plane);
   loop.sleep();
 }
+
 
 
 void GetPointsInVoxel(const OctoTree *current_octo, const int pub_max_voxel_layer,

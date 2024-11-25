@@ -318,4 +318,11 @@ Eigen::Matrix3d g2R(const Eigen::Vector3d &g)
     return R0;
 }
 
+template<typename T>
+void adjugateM3D(const Matrix<T, 3, 3> &s, Matrix<T, 3, 3> &t){
+    t << s(1,1) * s(2,2) - s(1,2) * s(2,1), s(1,2) * s(2,0) - s(1,0) * s(2,2), s(1,0) * s(2,1) - s(1,1) * s(2,0),
+            s(0,2) * s(2,1) - s(0,1) * s(2,2), s(0,0) * s(2,2) - s(0,2) * s(2,0), s(0,1) * s(2,0) - s(0,0) * s(2,1),
+            s(0,1) * s(1,2) - s(1,1) * s(0,2), s(0,2) * s(1,0) - s(0,0) * s(1,2), s(0,0) * s(1,1) - s(0,1) * s(1,0);
+}
+
 #endif

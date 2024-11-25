@@ -136,7 +136,7 @@ pcl::RandomSample<PointType> downSizeFilterVis;
 
 std::vector<float> nn_dist_in_feats;
 std::vector<float> nn_plane_std;
-PointCloudXYZI::Ptr feats_with_correspondence(new PointCloudXYZI());
+// PointCloudXYZI::Ptr feats_with_correspondence(new PointCloudXYZI());
 
 V3F XAxisPoint_body(LIDAR_SP_LEN, 0.0, 0.0);
 V3F XAxisPoint_world(LIDAR_SP_LEN, 0.0, 0.0);
@@ -163,7 +163,7 @@ double ranging_cov = 0.0;
 double angle_cov = 0.0;
 std::vector<double> layer_point_size;
 
-bool publish_voxel_map = false;
+bool publish_voxel_map = true;
 int publish_max_voxel_layer = 0;
 
 std::unordered_map<VOXEL_LOC, OctoTree *> voxel_map;
@@ -172,7 +172,7 @@ std::unordered_map<VOXEL_LOC, OctoTree *> voxel_map;
 MeasureGroup Measures;
 esekfom::esekf<state_ikfom, 12, input_ikfom> kf;
 state_ikfom state_point, state_point_prev;
-vect3 pos_lid;
+// vect3 pos_lid;
 
 nav_msgs::Path path;
 nav_msgs::Odometry odomAftMapped;
@@ -270,6 +270,7 @@ void standard_pcl_cbk(const sensor_msgs::PointCloud2::ConstPtr &msg)
     }
 
     PointCloudXYZI::Ptr  ptr(new PointCloudXYZI());
+    p_pre->intensity_th = intensity_th;
     p_pre->process(msg, ptr);
     // 删除过少的点
     // std::printf("points: %ld\n", ptr->size());
@@ -458,6 +459,20 @@ bool sync_packages(MeasureGroup &meas)
 PointCloudXYZI::Ptr pcl_wait_pub(new PointCloudXYZI(500000, 1));
 PointCloudXYZI::Ptr pcl_wait_save(new PointCloudXYZI());
 
+void savePointCloud2ToPCD(const sensor_msgs::PointCloud2& input_cloud_msg, const std::string& filename) {
+    // 创建 PCL 点云对象
+    pcl::PointCloud<pcl::PointXYZ> pcl_cloud;
+
+    // 将 sensor_msgs::PointCloud2 转换为 pcl::PointCloud
+    pcl::fromROSMsg(input_cloud_msg, pcl_cloud);
+
+    // 保存到 PCD 文件
+    if (pcl::io::savePCDFileASCII(filename, pcl_cloud) == 0) {
+        ROS_INFO("Successfully saved point cloud to %s", filename.c_str());
+    } else {
+        ROS_ERROR("Failed to save point cloud to %s", filename.c_str());
+    }
+}
 
 void publish_frame_world(const ros::Publisher & pubLaserCloudFull)
 {
@@ -482,9 +497,6 @@ void publish_frame_world(const ros::Publisher & pubLaserCloudFull)
                 continue;
             }
             PointType const * const p = &laserCloudFullRes->points[i];
-            if(p->intensity < intensity_th){
-                continue;
-            }
             // 转换到gravity aligned系 删除过高的点, 保证平面的可视化效果
             V3D p_body;
             p_body << p->x, p->y, p->z;
@@ -511,6 +523,7 @@ void publish_frame_world(const ros::Publisher & pubLaserCloudFull)
 
         sensor_msgs::PointCloud2 laserCloudmsg;
         pcl::toROSMsg(laserCloudWorld, laserCloudmsg);
+        // savePointCloud2ToPCD(laserCloudmsg, "/home/guowenwu/workspace/Indoor_SLAM/alpha_ws/voxel_plane.pcd");
         laserCloudmsg.header.stamp = ros::Time().fromSec(lidar_end_time);
         laserCloudmsg.header.frame_id = "camera_init";
         pubLaserCloudFull.publish(laserCloudmsg);
@@ -699,8 +712,8 @@ void observation_model_share(state_ikfom &s, esekfom::dyn_share_datastruct<doubl
 {
 //    laserCloudOri->clear();
 //    corr_normvect->clear();
-    feats_with_correspondence->clear();
-    total_residual = 0.0;
+    // feats_with_correspondence->clear();
+    // total_residual = 0.0;
 
     // =================================================================================================================
     // 用当前迭代轮最新的位姿估计值 将点云转换到world地图系
@@ -864,7 +877,7 @@ void observation_model_share(state_ikfom &s, esekfom::dyn_share_datastruct<doubl
     }
 
     // std::printf("Effective Points: %d\n", effct_feat_num);
-    res_mean_last = total_residual / effct_feat_num;
+    // res_mean_last = total_residual / effct_feat_num;
     // std::printf("res_mean: %f\n", res_mean_last);
     // std::printf("ef_num: %d\n", effct_feat_num);
 }
@@ -904,7 +917,7 @@ void execute(){
     double t_optimize_start = omp_get_wtime();
     p_imu->Process(Measures, kf, feats_undistort);
     state_point = kf.get_x();
-    pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
+    // pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
 
   if (feats_undistort->empty() || (feats_undistort == NULL)) {
     ROS_WARN("No point, skip this scan!\n");
@@ -940,10 +953,11 @@ void execute(){
 
             pv.cov = cov_world;
             pv_list.push_back(pv);
-            Eigen::Vector3d sigma_pv = pv.cov.diagonal();
-            sigma_pv[0] = sqrt(sigma_pv[0]);
-            sigma_pv[1] = sqrt(sigma_pv[1]);
-            sigma_pv[2] = sqrt(sigma_pv[2]);
+            pv.intensity = world_lidar->points[i].intensity;
+            // Eigen::Vector3d sigma_pv = pv.cov.diagonal();
+            // sigma_pv[0] = sqrt(sigma_pv[0]);
+            // sigma_pv[1] = sqrt(sigma_pv[1]);
+            // sigma_pv[2] = sqrt(sigma_pv[2]);
         }
 
         // 当前state point 赋值
@@ -954,7 +968,7 @@ void execute(){
         std::cout << "build voxel map" << std::endl;
 
         if (publish_voxel_map) {
-            current_state_point = kf.get_x();
+            // current_state_point = kf.get_x();
             pubVoxelMap(voxel_map, publish_max_voxel_layer, voxel_map_pub);
             publish_frame_world(pubLaserCloudFull);
             publish_frame_body(pubLaserCloudFull_body);
@@ -967,8 +981,8 @@ void execute(){
     /*** downsample the feature points in a scan ***/
     downSizeFilterSurf.setInputCloud(feats_undistort);
     downSizeFilterSurf.filter(*feats_down_body);
-    std::cout << "feats size:" << feats_undistort->size()
-                      << ", down size:" << feats_down_body->size() << std::endl;
+    // std::cout << "feats size:" << feats_undistort->size()
+    //                   << ", down size:" << feats_down_body->size() << std::endl;
     // 如果首次下采样点数量还是太多(一般是大场景,不需要这么多点) 那么就adaptive 再次下采样
     if (adaptive_voxelization) {
         size_t feats_down_size_first = feats_down_body->points.size();
@@ -1046,7 +1060,7 @@ void execute(){
 //    kf.change_x(state_point);
 
     euler_cur = SO3ToEuler(state_point.rot);
-    pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
+    // pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
     geoQuat.x = state_point.rot.coeffs()[0];
     geoQuat.y = state_point.rot.coeffs()[1];
     geoQuat.z = state_point.rot.coeffs()[2];
@@ -1075,6 +1089,7 @@ void execute(){
         // 最终updateVoxelMap需要用的是world系的point
         pv.cov = cov_world;
         pv.point << world_lidar->points[i].x, world_lidar->points[i].y, world_lidar->points[i].z;
+        pv.intensity = world_lidar->points[i].intensity;
         pv_list.push_back(pv);
     }
 
@@ -1091,7 +1106,7 @@ void execute(){
     // 可视化相关
     /******* Publish odometry *******/
     double t_vis_start = omp_get_wtime();
-    publish_odometry(pubOdomAftMapped);
+    // publish_odometry(pubOdomAftMapped);
 //
 //            /*** add the feature points to map kdtree ***/
 //            map_incremental();
@@ -1101,7 +1116,7 @@ void execute(){
     /******* Publish points *******/
     if (path_en)                         publish_path(pubPath);
     if (scan_pub_en)      publish_frame_world(pubLaserCloudFull);
-    if (scan_pub_en && scan_body_pub_en) publish_frame_body(pubLaserCloudFull_body);
+    // if (scan_pub_en && scan_body_pub_en) publish_frame_body(pubLaserCloudFull_body);
     if (publish_voxel_map && pubLaserCloudMap.getNumSubscribers() > 0) {
 //        current_state_point = kf.get_x();
         pubColoredVoxels(voxel_map, publish_max_voxel_layer, pubLaserCloudMap, lidar_end_time);
@@ -1111,27 +1126,27 @@ void execute(){
         pubVoxelMap(voxel_map, publish_max_voxel_layer, voxel_map_pub);
     }
     double t_vis_end = omp_get_wtime();
-    nav_msgs::Odometry stat_msg;
-    stat_msg.header = odomAftMapped.header;
-    stat_msg.pose.pose.position.x = t_optimize_end - t_optimize_start;
-    stat_msg.pose.pose.position.y = t_update_end - t_update_start;
-    stats_pub.publish(stat_msg);
+    // nav_msgs::Odometry stat_msg;
+    // stat_msg.header = odomAftMapped.header;
+    // stat_msg.pose.pose.position.x = t_optimize_end - t_optimize_start;
+    // stat_msg.pose.pose.position.y = t_update_end - t_update_start;
+    // stats_pub.publish(stat_msg);
     // publish_effect_world(pubLaserCloudEffect);
     // publish_map(pubLaserCloudMap);
 //
-    std::printf("v: %.2f %.2f %.2f BA: %.4f %.4f %.4f   BG: %.4f %.4f %.4f   g: %.4f %.4f %.4f\n",
-                kf.get_x().vel.x(),kf.get_x().vel.y(),kf.get_x().vel.z(),
-                kf.get_x().ba.x(),kf.get_x().ba.y(),kf.get_x().ba.z(),
-                kf.get_x().bg.x(),kf.get_x().bg.y(),kf.get_x().bg.z(),
-                kf.get_x().grav.get_vect().x(), kf.get_x().grav.get_vect().y(), kf.get_x().grav.get_vect().z()
-    );
+    // std::printf("v: %.2f %.2f %.2f BA: %.4f %.4f %.4f   BG: %.4f %.4f %.4f   g: %.4f %.4f %.4f\n",
+    //             kf.get_x().vel.x(),kf.get_x().vel.y(),kf.get_x().vel.z(),
+    //             kf.get_x().ba.x(),kf.get_x().ba.y(),kf.get_x().ba.z(),
+    //             kf.get_x().bg.x(),kf.get_x().bg.y(),kf.get_x().bg.z(),
+    //             kf.get_x().grav.get_vect().x(), kf.get_x().grav.get_vect().y(), kf.get_x().grav.get_vect().z()
+    // );
 
-    std::printf("Mean Latency: %.3fs |  Mean Topt: %.5fs   Tu: %.5fs   | Cur Topt: %.5fs   Tu: %.5fs   Tvis: %.5fs\n",
-                (sum_optimize_time + sum_update_time) / scan_index + (t_vis_end - t_vis_start),
-                sum_optimize_time / scan_index, sum_update_time / scan_index,
-                t_optimize_end - t_optimize_start,
-                t_update_end - t_update_start,
-                t_vis_end - t_vis_start);
+    // std::printf("Mean Latency: %.3fs |  Mean Topt: %.5fs   Tu: %.5fs   | Cur Topt: %.5fs   Tu: %.5fs   Tvis: %.5fs\n",
+    //             (sum_optimize_time + sum_update_time) / scan_index + (t_vis_end - t_vis_start),
+    //             sum_optimize_time / scan_index, sum_update_time / scan_index,
+    //             t_optimize_end - t_optimize_start,
+    //             t_update_end - t_update_start,
+    //             t_vis_end - t_vis_start);
     stat_latency
             << lidar_end_time << ", "
             << t_optimize_end - t_optimize_start << ", "
@@ -1163,14 +1178,14 @@ void savePathAsTUM(const nav_msgs::Path& path, const std::string& filename) {
 
         // 提取姿态信息：四元数部分 (qx, qy, qz, qw)
         const auto& orientation = poseStamped.pose.orientation;
-        // double qx = orientation.x;
-        // double qy = orientation.y;
-        // double qz = orientation.z;
-        // double qw = orientation.w;
-        double qx = 0.;
-        double qy = 0.;
-        double qz = 0.;
-        double qw = 1.;
+        double qx = orientation.x;
+        double qy = orientation.y;
+        double qz = orientation.z;
+        double qw = orientation.w;
+        // double qx = 0.;
+        // double qy = 0.;
+        // double qz = 0.;
+        // double qw = 1.;
 
         // 写入文件，格式: timestamp tx ty tz qx qy qz qw
         file << std::fixed << timestamp << " " 
@@ -1222,6 +1237,11 @@ int main(int argc, char** argv)
     nh.param<vector<double>>("mapping/adaptive_threshold", adaptive_threshold, vector<double>({1000}));
     nh.param<vector<double>>("mapping/adaptive_multiple_factor", adaptive_multiple_factor, vector<double>({2.0}));
     nh.param<bool>("mapping/init_gravity_with_pose", init_gravity_with_pose, false);
+    nh.param<float>("mapping/merge_distance_threshold",MERGE_DISTANCE_THRESHOLD,0.03f);
+    nh.param<float>("mapping/merge_bias_threshold",MERGE_BIAS_THRESHOLD,0.8f);
+    nh.param<int>("mapping/merge_intensity_diff", MERGE_INTENSITY_DIFF, 30);
+    nh.param<bool>("mapping/merge_mode", merge_mode, false);
+    
 
     // noise model params
     nh.param<double>("noise_model/ranging_cov", ranging_cov, 0.02);
@@ -1232,7 +1252,7 @@ int main(int argc, char** argv)
     nh.param<double>("noise_model/b_acc_cov",b_acc_cov,0.0001);
 
     // visualization params
-    nh.param<bool>("publish/pub_voxel_map", publish_voxel_map, false);
+    nh.param<bool>("publish/pub_voxel_map", publish_voxel_map, true);
     nh.param<int>("publish/publish_max_voxel_layer", publish_max_voxel_layer, 0);
     nh.param<int>("publish/publish_downsample_points", publish_downsample_points, 1000000);
     nh.param<int>("publish/publish_dense_skip", publish_dense_skip, 1);
@@ -1365,6 +1385,6 @@ int main(int argc, char** argv)
         rate.sleep();
     }
     stat_latency.close();
-    savePathAsTUM(path,"/home/guowenwu/workspace/Indoor_SLAM/alpha_ws/resutl.txt");
+    savePathAsTUM(path,"/home/guowenwu/workspace/Indoor_SLAM/gb_ws/resutl.txt");
     return 0;
 }

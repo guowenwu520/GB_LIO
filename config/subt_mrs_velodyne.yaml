@@ -15,7 +15,7 @@ preprocess:
     point_filter_num: 1
 
 mapping:
-    down_sample_size: 0.2
+    down_sample_size: 0.1
     max_iteration: 4
 #    voxel_size: 1.0
 #    max_layer: 4                # 4 layer, 0, 1, 2, 3
@@ -37,6 +37,10 @@ mapping:
     extrinsic_R: [ 1, 0, 0,
                    0, 1, 0,
                    0, 0, 1 ]
+    merge_mode: false               
+    merge_distance_threshold: 0.004
+    merge_bias_threshold: 0.5
+    merge_intensity_diff: 30             
 
 
 noise_model:
@@ -56,7 +60,7 @@ noise_model:
 
 
 publish:
-    pub_voxel_map: false
+    pub_voxel_map: true
     publish_max_voxel_layer: 2         # only publish 0,1,2 layer's plane
     path_en:  true
     publish_limit_z: 3.0

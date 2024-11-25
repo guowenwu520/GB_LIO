@@ -9,8 +9,6 @@ Panels:
         - /mapping1/currPoints1
         - /mapping1/currPoints1/Autocompute Value Bounds1
         - /Odometry1
-        - /Odometry1/encoder_fixed1/Shape1
-        - /Odometry1/imu1
         - /Odometry1/imu1/Shape1
         - /Odometry2/Shape1
         - /Legend1
@@ -212,7 +210,7 @@ Visualization Manager:
       Buffer Length: 1
       Class: rviz/Path
       Color: 25; 255; 255
-      Enabled: false
+      Enabled: true
       Head Diameter: 0
       Head Length: 0.10000000149011612
       Length: 0.5
@@ -231,7 +229,7 @@ Visualization Manager:
       Shaft Length: 0.5
       Topic: /path
       Unreliable: false
-      Value: false
+      Value: true
     - Class: rviz/Marker
       Enabled: false
       Marker Topic: /planner_normal
@@ -331,7 +329,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 95.01066589355469
+      Distance: 9.061701774597168
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -347,9 +345,9 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.1503980159759521
+      Pitch: 0.6647962331771851
       Target Frame: camera_init
-      Yaw: 2.383582353591919
+      Yaw: 3.4635825157165527
     Saved: ~
 Window Geometry:
   Displays:

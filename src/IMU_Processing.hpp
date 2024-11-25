@@ -176,10 +176,6 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 
     Reset();
     N = 1;
     b_first_frame_ = false;
-    const auto &imu_acc = meas.imu.front()->linear_acceleration;
-    const auto &gyr_acc = meas.imu.front()->angular_velocity;
-    mean_acc << imu_acc.x, imu_acc.y, imu_acc.z;
-    mean_gyr << gyr_acc.x, gyr_acc.y, gyr_acc.z;
     first_lidar_time = meas.lidar_beg_time;
   }
 
@@ -191,17 +187,17 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 
     cur_gyr << gyr_acc.x, gyr_acc.y, gyr_acc.z;
 
     mean_acc      += (cur_acc - mean_acc) / N;
-    mean_gyr      += (cur_gyr - mean_gyr) / N;
+    // mean_gyr      += (cur_gyr - mean_gyr) / N;
 
     // XXX 这里计算的cov实际没有用到，在初始化结束后都被config里设置的值覆盖了
-    cov_acc = cov_acc * (N - 1.0) / N + (cur_acc - mean_acc).cwiseProduct(cur_acc - mean_acc) * (N - 1.0) / (N * N);
-    cov_gyr = cov_gyr * (N - 1.0) / N + (cur_gyr - mean_gyr).cwiseProduct(cur_gyr - mean_gyr) * (N - 1.0) / (N * N);
+    // cov_acc = cov_acc * (N - 1.0) / N + (cur_acc - mean_acc).cwiseProduct(cur_acc - mean_acc) * (N - 1.0) / (N * N);
+    // cov_gyr = cov_gyr * (N - 1.0) / N + (cur_gyr - mean_gyr).cwiseProduct(cur_gyr - mean_gyr) * (N - 1.0) / (N * N);
 
     // cout<<"acc norm: "<<cur_acc.norm()<<" "<<mean_acc.norm()<<endl;
 
     N ++;
-    std::printf("IMU initing... %d NACC: %.4f ACC: %.4f %.4f %.4f  GYRO: %.4f %.4f %.4f\n",
-                N, mean_acc.norm(), mean_acc[0], mean_acc[1], mean_acc[2], mean_gyr[0], mean_gyr[1], mean_gyr[2]);
+    // std::printf("IMU initing... %d NACC: %.4f ACC: %.4f %.4f %.4f  GYRO: %.4f %.4f %.4f\n",
+    //             N, mean_acc.norm(), mean_acc[0], mean_acc[1], mean_acc[2], mean_gyr[0], mean_gyr[1], mean_gyr[2]);
     std::printf("IMU pose... %.4f %.4f %.4f %.4f\n",
                 imu->orientation.w,
                 imu->orientation.x,
@@ -230,12 +226,12 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 
              meas.imu.back()->header.stamp.toSec(), meas.lidar_end_time, last_lidar_end_time_);
   }
   else{
-      init_state.grav = S2(- mean_acc / mean_acc.norm() * G_m_s2);
-      //state_inout.rot = Eye3d; // Exp(mean_acc.cross(V3D(0, 0, -1 / scale_gravity)));
-      init_state.bg  = mean_gyr;
+      // init_state.grav = S2(- mean_acc / mean_acc.norm() * G_m_s2);
+      // //state_inout.rot = Eye3d; // Exp(mean_acc.cross(V3D(0, 0, -1 / scale_gravity)));
+      // init_state.bg  = mean_gyr;
 
-      // initial world pose
-      Initial_R_wrt_G = SO3(g2R(mean_acc));
+      // // initial world pose
+      // Initial_R_wrt_G = SO3(g2R(mean_acc));
   }
   init_state.offset_T_L_I = Lidar_T_wrt_IMU;
   init_state.offset_R_L_I = Lidar_R_wrt_IMU;
@@ -251,7 +247,6 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 
   init_P(21,21) = init_P(22,22) = 0.00001; 
   kf_state.change_P(init_P);
   last_imu_ = meas.imu.back();
-
 }
 
 void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, PointCloudXYZI &pcl_out)
@@ -343,8 +338,10 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
 
   /*** undistort each lidar point (backward propagation) ***/
   auto it_pcl = pcl_out.points.end() - 1;
+  // 从pcl_out.points的末尾开始遍历
   for (auto it_kp = IMUpose.end() - 1; it_kp != IMUpose.begin(); it_kp--)
   {
+    // 从IMUpose的末尾开始遍历
     auto head = it_kp - 1;
     auto tail = it_kp;
     R_imu<<MAT_FROM_ARRAY(head->rot);
@@ -353,7 +350,9 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
     pos_imu<<VEC_FROM_ARRAY(head->pos);
     acc_imu<<VEC_FROM_ARRAY(tail->acc);
     angvel_avr<<VEC_FROM_ARRAY(tail->gyr);
+    // auto it_pcl = pcl_out.points.end() - 1;
 
+    // 遍历pcl_out.points，直到it_pcl->curvature / double(1000) > head->offset_time
     for(; it_pcl->curvature / double(1000) > head->offset_time; it_pcl --)
     {
       dt = it_pcl->curvature / double(1000) - head->offset_time;

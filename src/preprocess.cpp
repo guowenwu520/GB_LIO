@@ -21,6 +21,7 @@ Preprocess::Preprocess()
   cos160 = 160.0;
   edgea = 2;
   edgeb = 0.1;
+  intensity_th = 2.0;
   smallp_intersect = 172.5;
   smallp_ratio = 1.2;
   given_offset_time = false;
@@ -301,83 +302,83 @@ void Preprocess::velodyne_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
       }
     }
 
-    if(feature_enabled)
-    {
-      for (int i = 0; i < N_SCANS; i++)
-      {
-        pl_buff[i].clear();
-        pl_buff[i].reserve(plsize);
-      }
+    // if(feature_enabled)
+    // {
+    //   for (int i = 0; i < N_SCANS; i++)
+    //   {
+    //     pl_buff[i].clear();
+    //     pl_buff[i].reserve(plsize);
+    //   }
       
-      for (int i = 0; i < plsize; i++)
-      {
-        PointType added_pt;
-        added_pt.normal_x = 0;
-        added_pt.normal_y = 0;
-        added_pt.normal_z = 0;
-        int layer  = pl_orig.points[i].ring;
-        if (layer >= N_SCANS) continue;
-        added_pt.x = pl_orig.points[i].x;
-        added_pt.y = pl_orig.points[i].y;
-        added_pt.z = pl_orig.points[i].z;
-        added_pt.intensity = pl_orig.points[i].intensity;
-        added_pt.curvature = pl_orig.points[i].time / 1000.0; // units: ms
+    //   for (int i = 0; i < plsize; i++)
+    //   {
+    //     PointType added_pt;
+    //     added_pt.normal_x = 0;
+    //     added_pt.normal_y = 0;
+    //     added_pt.normal_z = 0;
+    //     int layer  = pl_orig.points[i].ring;
+    //     if (layer >= N_SCANS) continue;
+    //     added_pt.x = pl_orig.points[i].x;
+    //     added_pt.y = pl_orig.points[i].y;
+    //     added_pt.z = pl_orig.points[i].z;
+    //     added_pt.intensity = pl_orig.points[i].intensity;
+    //     added_pt.curvature = pl_orig.points[i].time / 1000.0; // units: ms
 
-        if (!given_offset_time)
-        {
-          double yaw_angle = atan2(added_pt.y, added_pt.x) * 57.2957;
-          if (is_first[layer])
-          {
-            // printf("layer: %d; is first: %d", layer, is_first[layer]);
-              yaw_fp[layer]=yaw_angle;
-              is_first[layer]=false;
-              added_pt.curvature = 0.0;
-              yaw_last[layer]=yaw_angle;
-              time_last[layer]=added_pt.curvature;
-              continue;
-          }
+    //     if (!given_offset_time)
+    //     {
+    //       double yaw_angle = atan2(added_pt.y, added_pt.x) * 57.2957;
+    //       if (is_first[layer])
+    //       {
+    //         // printf("layer: %d; is first: %d", layer, is_first[layer]);
+    //           yaw_fp[layer]=yaw_angle;
+    //           is_first[layer]=false;
+    //           added_pt.curvature = 0.0;
+    //           yaw_last[layer]=yaw_angle;
+    //           time_last[layer]=added_pt.curvature;
+    //           continue;
+    //       }
 
-          if (yaw_angle <= yaw_fp[layer])
-          {
-            added_pt.curvature = (yaw_fp[layer]-yaw_angle) / omega_l;
-          }
-          else
-          {
-            added_pt.curvature = (yaw_fp[layer]-yaw_angle+360.0) / omega_l;
-          }
+    //       if (yaw_angle <= yaw_fp[layer])
+    //       {
+    //         added_pt.curvature = (yaw_fp[layer]-yaw_angle) / omega_l;
+    //       }
+    //       else
+    //       {
+    //         added_pt.curvature = (yaw_fp[layer]-yaw_angle+360.0) / omega_l;
+    //       }
 
-          if (added_pt.curvature < time_last[layer])  added_pt.curvature+=360.0/omega_l;
+    //       if (added_pt.curvature < time_last[layer])  added_pt.curvature+=360.0/omega_l;
 
-          yaw_last[layer] = yaw_angle;
-          time_last[layer]=added_pt.curvature;
-        }
+    //       yaw_last[layer] = yaw_angle;
+    //       time_last[layer]=added_pt.curvature;
+    //     }
 
-        pl_buff[layer].points.push_back(added_pt);
-      }
+    //     pl_buff[layer].points.push_back(added_pt);
+    //   }
 
-      for (int j = 0; j < N_SCANS; j++)
-      {
-        PointCloudXYZI &pl = pl_buff[j];
-        int linesize = pl.size();
-        if (linesize < 2) continue;
-        vector<orgtype> &types = typess[j];
-        types.clear();
-        types.resize(linesize);
-        linesize--;
-        for (uint i = 0; i < linesize; i++)
-        {
-          types[i].range = sqrt(pl[i].x * pl[i].x + pl[i].y * pl[i].y);
-          vx = pl[i].x - pl[i + 1].x;
-          vy = pl[i].y - pl[i + 1].y;
-          vz = pl[i].z - pl[i + 1].z;
-          types[i].dista = vx * vx + vy * vy + vz * vz;
-        }
-        types[linesize].range = sqrt(pl[linesize].x * pl[linesize].x + pl[linesize].y * pl[linesize].y);
-        give_feature(pl, types);
-      }
-    }
-    else
-    {
+    //   for (int j = 0; j < N_SCANS; j++)
+    //   {
+    //     PointCloudXYZI &pl = pl_buff[j];
+    //     int linesize = pl.size();
+    //     if (linesize < 2) continue;
+    //     vector<orgtype> &types = typess[j];
+    //     types.clear();
+    //     types.resize(linesize);
+    //     linesize--;
+    //     for (uint i = 0; i < linesize; i++)
+    //     {
+    //       types[i].range = sqrt(pl[i].x * pl[i].x + pl[i].y * pl[i].y);
+    //       vx = pl[i].x - pl[i + 1].x;
+    //       vy = pl[i].y - pl[i + 1].y;
+    //       vz = pl[i].z - pl[i + 1].z;
+    //       types[i].dista = vx * vx + vy * vy + vz * vz;
+    //     }
+    //     types[linesize].range = sqrt(pl[linesize].x * pl[linesize].x + pl[linesize].y * pl[linesize].y);
+    //     give_feature(pl, types);
+    //   }
+    // }
+    // else
+    // {
       for (int i = 0; i < plsize; i++)
       {
         // 删除第一排点 因为可能时间戳有问题
@@ -393,7 +394,9 @@ void Preprocess::velodyne_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
 //                       i, msg->header.stamp.toSec(), pl_orig.points[i].time);
             continue;
         }
-
+        if(pl_orig.points[i].intensity < intensity_th){
+                continue;
+        }
 //        if(pl_orig.points[i].intensity < 5){
 //            continue;
 //        }
@@ -450,7 +453,7 @@ void Preprocess::velodyne_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
           }
         }
       }
-    }
+    // }
 }
 
 void Preprocess::give_feature(pcl::PointCloud<PointType> &pl, vector<orgtype> &types)

@@ -100,6 +100,7 @@ class Preprocess
   double blind;
   bool feature_enabled, given_offset_time;
   ros::Publisher pub_full, pub_surf, pub_corn;
+  double intensity_th;
     
 
   private:
