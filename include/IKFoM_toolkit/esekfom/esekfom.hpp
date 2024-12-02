@@ -1714,7 +1714,7 @@ public:
 
 			if(n > dof_Measurement)
 			{
-			    std::printf("\n\n\n Too few measurement, n > dof_Measurement!!!\n\n\n");
+			    std::printf("\n\n\n Too few measurement, n > dof_Measurement!!!  %d  %d \n\n\n",n,dof_Measurement);
 			//#ifdef USE_sparse
 				//Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> K_temp = h_x * P_ * h_x.transpose();
 				//spMt R_temp = h_v * R_ * h_v.transpose();

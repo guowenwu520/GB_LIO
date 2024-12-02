@@ -19,6 +19,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -pthread -std=c++0x -std=c++14 -fexceptions")
 set(livox_ros_driver_DIR "/home/guowenwu/workspace/Indoor_SLAM/livox_driver_ws/devel/.private/livox_ros_driver/share/livox_ros_driver/cmake/")
+set(CUDA_TOOLKIT_ROOT_DIR /usr/local/cuda-11.5)
 
 message("Current CPU archtecture: ${CMAKE_SYSTEM_PROCESSOR}")
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)|(aarch64)" )
@@ -49,7 +50,7 @@ else()
 endif()
 
 find_package(Boost REQUIRED COMPONENTS timer)
-
+find_package(OpenCV REQUIRED)
 find_package(OpenMP REQUIRED)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}   ${OpenMP_C_FLAGS}")
@@ -101,11 +102,11 @@ catkin_package(
 )
 
 add_executable(${PROJECT_NAME}_node src/voxelMapping.cpp src/preprocess.cpp)
-target_link_libraries(${PROJECT_NAME}_node ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${PYTHON_LIBRARIES})
+target_link_libraries(${PROJECT_NAME}_node ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${PYTHON_LIBRARIES}  ${OpenCV_LIBS})
 target_include_directories(${PROJECT_NAME}_node PRIVATE ${PYTHON_INCLUDE_DIRS})
 
 add_executable(pandar_to_velodyne src/converter/pandar_to_velodyne.cpp)
-target_link_libraries(pandar_to_velodyne ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${PYTHON_LIBRARIES})
+target_link_libraries(pandar_to_velodyne ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${PYTHON_LIBRARIES}  ${OpenCV_LIBS})
 target_include_directories(pandar_to_velodyne PRIVATE ${PYTHON_INCLUDE_DIRS})
 
 # add_executable(rs_to_velodyne src/converter/rs_to_velodyne.cpp)

@@ -63,6 +63,8 @@ class ImuProcess
 
   SO3 Initial_R_wrt_G;
   bool init_gravity_with_pose;
+  bool   imu_need_init_;
+  bool   b_first_frame_;
 
  private:
   void IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, int &N);
@@ -82,8 +84,6 @@ class ImuProcess
   double start_timestamp_;
   double last_lidar_end_time_;
   int    init_iter_num = 1;
-  bool   b_first_frame_ = true;
-  bool   imu_need_init_ = true;
 };
 
 ImuProcess::ImuProcess()

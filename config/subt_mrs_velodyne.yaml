@@ -15,7 +15,7 @@ preprocess:
     point_filter_num: 1
 
 mapping:
-    down_sample_size: 0.1
+    down_sample_size: 0.2
     max_iteration: 4
 #    voxel_size: 1.0
 #    max_layer: 4                # 4 layer, 0, 1, 2, 3
@@ -38,19 +38,21 @@ mapping:
                    0, 1, 0,
                    0, 0, 1 ]
     merge_mode: false               
-    merge_distance_threshold: 0.004
-    merge_bias_threshold: 0.5
-    merge_intensity_diff: 30             
+    merge_distance_threshold: 0.03
+    merge_bias_threshold: 0.4
+    merge_intensity_diff: 50             
 
 
 noise_model:
+# 如果观测数据质量高（传感器精度高），降低R的相关参数值（例如ranging_cov, angle_cov）。
+# 如果预测模型的鲁棒性较强，提高Q的相关参数值（例如acc_cov, gyr_cov）。
     ranging_cov: 0.04
     angle_cov: 0.1
     # v2的硬件 imu cov调低一点效果好
 #    acc_cov: 0.05
 #    gyr_cov: 0.0025
     acc_cov: 0.1
-    gyr_cov: 0.01
+    gyr_cov: 0.01 
     #    acc_cov: 1.0
     #    gyr_cov: 0.5
 #    b_acc_cov: 0.0043
@@ -60,7 +62,7 @@ noise_model:
 
 
 publish:
-    pub_voxel_map: true
+    pub_voxel_map: false
     publish_max_voxel_layer: 2         # only publish 0,1,2 layer's plane
     path_en:  true
     publish_limit_z: 3.0

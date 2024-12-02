@@ -740,7 +740,7 @@ bool merge_plane(Plane *p1,Plane *p2){
     V3D abd_bias = (p1->normal - p2->normal).cwiseAbs();
     double m_distance = sqrt(abd_bias.transpose() * (p2->covariance + p1->covariance).inverse() * abd_bias);
     float m_intensity = abs(p1->intensity - p2->intensity);
-    float m_bi = max(p1->intensity, p2->intensity)/100.0;
+    float m_bi = (255-max(p1->intensity, p2->intensity))/255.0;
     float th=0.05;
     if (m_intensity < MERGE_INTENSITY_DIFF 
          &&(abd_bias[0] < MERGE_BIAS_THRESHOLD*m_bi && abd_bias[1] < MERGE_BIAS_THRESHOLD*m_bi) 
@@ -755,18 +755,18 @@ bool merge_plane(Plane *p1,Plane *p2){
 
         merged->normal = (p1->normal * p1->points_size + p2->normal * p2->points_size) / total_points;
       
-        if(abs(merged->normal[2]) <= th && abs(merged->normal[1]) <= th){
-            merged->normal[2] = 0.0;        
-             merged->normal[1] = 0.0;
-        }
-          if(abs(merged->normal[0]) <= th && abs(merged->normal[1]) <= th){
-            merged->normal[0] = 0.0;        
-             merged->normal[1] = 0.0;
-        }
-          if(abs(merged->normal[2]) <= th && abs(merged->normal[0]) <= th){
-            merged->normal[2] = 0.0;        
-             merged->normal[0] = 0.0;
-        }
+        // if(abs(merged->normal[2]) <= th && abs(merged->normal[1]) <= th){
+        //     merged->normal[2] = 0.0001;        
+        //      merged->normal[1] = 0.0001;
+        // }
+        //   if(abs(merged->normal[0]) <= th && abs(merged->normal[1]) <= th){
+        //     merged->normal[0] = 0.0001;        
+        //      merged->normal[1] = 0.0001;
+        // }
+        //   if(abs(merged->normal[2]) <= th && abs(merged->normal[0]) <= th){
+        //     merged->normal[2] = 0.0001;        
+        //      merged->normal[0] = 0.0001;
+        // }
         
         // merged->normal.normalize();
         merged->covariance = (p1->covariance * p1->points_size + p2->covariance * p2->points_size) / total_points;

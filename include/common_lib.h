@@ -53,11 +53,45 @@ V3F Zero3f(0, 0, 0);
 
 struct MeasureGroup     // Lidar data and imu dates for the curent process
 {
-    MeasureGroup()
+     MeasureGroup()
     {
         lidar_beg_time = 0.0;
+        lidar_end_time = 0.0;
         this->lidar.reset(new PointCloudXYZI());
     };
+
+    MeasureGroup(const MeasureGroup& other)
+    {
+        lidar_beg_time = other.lidar_beg_time;
+        lidar_end_time = other.lidar_end_time;
+
+        lidar.reset(new PointCloudXYZI(*other.lidar));
+
+        imu.clear();
+        for (const auto& imu_data : other.imu)
+        {
+            imu.push_back(imu_data);  
+        }
+    }
+
+    MeasureGroup& operator=(const MeasureGroup& other)
+    {
+        if (this == &other) return *this;  
+
+        lidar_beg_time = other.lidar_beg_time;
+        lidar_end_time = other.lidar_end_time;
+
+        lidar.reset(new PointCloudXYZI(*other.lidar));
+
+        imu.clear();
+        for (const auto& imu_data : other.imu)
+        {
+            imu.push_back(imu_data);
+        }
+
+        return *this;
+    }
+
     double lidar_beg_time;
     double lidar_end_time;
     PointCloudXYZI::Ptr lidar;

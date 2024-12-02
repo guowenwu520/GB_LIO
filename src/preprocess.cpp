@@ -272,6 +272,87 @@ void Preprocess::velodyne_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
     pcl::PointCloud<velodyne_ros::Point> pl_orig;
     pcl::fromROSMsg(*msg, pl_orig);
     int plsize = pl_orig.points.size();
+
+
+  //  // 1. 提取点云强度值
+  //   std::vector<float> intensities;
+  //   for (const auto& point : pl_orig.points) {
+  //       intensities.push_back(point.intensity);
+  //   }
+
+  //   // 2. 转换为 OpenCV 矩阵
+  //   cv::Mat intensityMat(intensities.size(), 1, CV_32F, intensities.data());
+
+  //   // 3. 计算强度值的最小值和最大值
+  //   double minVal, maxVal;
+  //   cv::minMaxLoc(intensityMat, &minVal, &maxVal);
+  //   std::cout << "Intensity Range: [" << minVal << ", " << maxVal << "]" << std::endl;
+
+  //   // 4. 计算直方图
+  //   int histSize = 50; // 直方图的分区数
+  //   float range[] = {0, 256}; // 假设强度值范围为 0 到 256
+  //   const float* histRange = {range};
+  //   cv::Mat hist;
+
+  //   cv::calcHist(&intensityMat, 1, 0, cv::Mat(), hist, 1, &histSize, &histRange, true, false);
+
+  //   // 5. 可视化直方图
+  //   int histWidth = 512, histHeight = 400;
+  //   int binWidth = cvRound((double)histWidth / histSize);
+
+  //   cv::Mat histImage(histHeight, histWidth, CV_8UC3, cv::Scalar(0, 0, 0));
+  //   cv::normalize(hist, hist, 0, histImage.rows, cv::NORM_MINMAX, -1, cv::Mat());
+
+  
+  //   for (int i = 1; i < histSize; i++) {
+  //       // 画直方图
+  //       cv::line(histImage,
+  //                cv::Point(binWidth * (i - 1), histHeight - cvRound(hist.at<float>(i - 1))),
+  //                cv::Point(binWidth * i, histHeight - cvRound(hist.at<float>(i))),
+  //                cv::Scalar(255, 0, 0), 2, 8, 0);
+
+  //       // 在柱子上方显示频次值
+  //       if(cvRound(hist.at<float>(i))<=0)continue;
+  //       std::string text = std::to_string(cvRound(hist.at<float>(i)));
+  //       cv::putText(histImage,
+  //                   text,
+  //                   cv::Point(binWidth * i - 10, histHeight - cvRound(hist.at<float>(i)) - 10),
+  //                   cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1, 8, false);
+  //   }
+
+  //   // 6. 在x轴上标注每个区间的强度值
+  //   for (int i = 0; i < histSize; i++) {
+  //       // 只显示部分标签，以避免标签拥挤
+  //       if (i % 5 == 0) {  // 每隔5个区间显示一个标签
+  //           std::string text = std::to_string(i * (256 / histSize));
+  //           cv::putText(histImage,
+  //                       text,
+  //                       cv::Point(binWidth * i - 5, histHeight - 5),
+  //                       cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1, 8, false);
+  //       }
+  //   }
+
+  //   // 7. 旋转X轴标签，避免文字重叠
+  //   for (int i = 0; i < histSize; i++) {
+  //       if (i % 5 == 0) {  // 每隔5个区间显示一个标签
+  //           std::string text = std::to_string(i * (256 / histSize));
+  //           cv::Point textPosition(binWidth * i - 5, histHeight - 5);
+
+  //           // 旋转文本 45 度
+  //           cv::Mat rotatedHistImage;
+  //           cv::getRotationMatrix2D(textPosition, 45, 1.0);
+  //           cv::putText(histImage,
+  //                       text,
+  //                       textPosition,
+  //                       cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 255), 1, 8, false);
+  //       }
+  //   }
+
+  //   // 6. 显示直方图
+  //   // cv::imshow("Intensity Histogram", histImage);
+  //   cv::imwrite("/home/guowenwu/workspace/Indoor_SLAM/gb_ws/histImage.jpg", histImage);
+
+    // std::printf("points: %ld\n", plsize);
     pl_surf.reserve(plsize);
 
     /*** These variables only works when no point timestamps given ***/
@@ -394,9 +475,9 @@ void Preprocess::velodyne_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
 //                       i, msg->header.stamp.toSec(), pl_orig.points[i].time);
             continue;
         }
-        if(pl_orig.points[i].intensity < intensity_th){
-                continue;
-        }
+        // if(pl_orig.points[i].intensity < intensity_th){
+        //         continue;
+        // }
 //        if(pl_orig.points[i].intensity < 5){
 //            continue;
 //        }

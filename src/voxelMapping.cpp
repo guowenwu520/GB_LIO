@@ -58,7 +58,7 @@
 #include <livox_ros_driver/CustomMsg.h>
 #include "preprocess.h"
 #include "voxel_map_util.hpp"
-
+#include <queue>
 #include <rosbag/bag.h>
 #include <rosbag/view.h>
 #include <boost/foreach.hpp>
@@ -123,6 +123,7 @@ deque<sensor_msgs::Imu::ConstPtr> imu_buffer;
 PointCloudXYZI::Ptr featsFromMap(new PointCloudXYZI());
 PointCloudXYZI::Ptr feats_undistort(new PointCloudXYZI());
 PointCloudXYZI::Ptr feats_down_body(new PointCloudXYZI());
+PointCloudXYZI::Ptr last_feats_down_body(new PointCloudXYZI());//记录上一帧的点云
 PointCloudXYZI::Ptr feats_down_world(new PointCloudXYZI());
 PointCloudXYZI::Ptr normvec(new PointCloudXYZI(100000, 1));
 //PointCloudXYZI::Ptr laserCloudOri(new PointCloudXYZI(100000, 1));
@@ -173,6 +174,9 @@ MeasureGroup Measures;
 esekfom::esekf<state_ikfom, 12, input_ikfom> kf;
 state_ikfom state_point, state_point_prev;
 // vect3 pos_lid;
+
+queue<MeasureGroup> measure_buffer;
+int max_queue_size=500;
 
 nav_msgs::Path path;
 nav_msgs::Odometry odomAftMapped;
@@ -903,6 +907,28 @@ bool init_map = false;
 double sum_optimize_time = 0, sum_update_time = 0;
 std::fstream stat_latency("/tmp/latency.csv", std::ios::out);
 
+float checkSimilarity(const PointCloudXYZI::Ptr &current_cloud, PointCloudXYZI::Ptr &last_cloud) {
+    if(last_cloud->size() == 0 || current_cloud->size() == 0)return 1.0f;
+     // 使用 KD-Tree 找到重叠点
+    pcl::KdTreeFLANN<pcl::PointXYZINormal> kdtree;
+    kdtree.setInputCloud(current_cloud);
+
+    int overlap_count = 0;
+    float search_radius = filter_size_surf_min * 1.5;
+
+    for (const auto &point : last_cloud->points) {
+        std::vector<int> indices;
+        std::vector<float> distances;
+        if (kdtree.radiusSearch(point, search_radius, indices, distances) > 0) {
+            overlap_count++;
+        }
+    }
+
+    // 计算重叠比例
+    float overlap_ratio = static_cast<float>(overlap_count) / (current_cloud->size()*1.0f);
+    return overlap_ratio;
+}
+
 void execute(){
     // execute one step of state estimation and mapping
     if (flg_first_scan)
@@ -1155,6 +1181,209 @@ void execute(){
             << std::endl;
 }
 
+void executeT(){
+    // execute one step of state estimation and mapping
+    if (flg_first_scan)
+    {
+        first_lidar_time = Measures.lidar_beg_time;
+        p_imu->first_lidar_time = first_lidar_time;
+        flg_first_scan = false;
+        p_imu->imu_need_init_ = true;
+        p_imu->b_first_frame_ = true;
+        // continue;
+        return;
+    }
+
+    double t_optimize_start = omp_get_wtime();
+    p_imu->Process(Measures, kf, feats_undistort);
+    state_point = kf.get_x();
+    // pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
+
+  if (feats_undistort->empty() || (feats_undistort == NULL)) {
+    ROS_WARN("No point, skip this scan!\n");
+    // continue;
+    return;
+  }
+
+    flg_EKF_inited = (Measures.lidar_beg_time - first_lidar_time) < INIT_TIME ? \
+                            false : true;
+    // ===============================================================================================================
+    // 第一帧 如果ekf初始化了 就初始化voxel地图
+    if (flg_EKF_inited && !init_map) {
+        PointCloudXYZI::Ptr world_lidar(new PointCloudXYZI);
+        transformLidar(state_point, feats_undistort, world_lidar);
+        std::vector<pointWithCov> pv_list;
+
+        // std::cout << kf.get_P() << std::endl;
+        // 计算第一帧所有点的covariance 并用于构建初始地图
+        for (size_t i = 0; i < world_lidar->size(); i++) {
+            pointWithCov pv;
+            pv.point << world_lidar->points[i].x, world_lidar->points[i].y,
+                    world_lidar->points[i].z;
+            V3D point_this(feats_undistort->points[i].x,
+                           feats_undistort->points[i].y,
+                           feats_undistort->points[i].z);
+            // if z=0, error will occur in calcBodyCov. To be solved
+            if (point_this[2] == 0) {
+                point_this[2] = 0.001;
+            }
+            M3D cov_lidar = calcBodyCov(point_this, ranging_cov, angle_cov);
+            // 转换到world系
+            M3D cov_world = transformLiDARCovToWorld(point_this, kf, cov_lidar);
+
+            pv.cov = cov_world;
+            pv_list.push_back(pv);
+            pv.intensity = world_lidar->points[i].intensity;
+            // Eigen::Vector3d sigma_pv = pv.cov.diagonal();
+            // sigma_pv[0] = sqrt(sigma_pv[0]);
+            // sigma_pv[1] = sqrt(sigma_pv[1]);
+            // sigma_pv[2] = sqrt(sigma_pv[2]);
+        }
+
+        // 当前state point 赋值
+        current_state_point = kf.get_x();
+        buildVoxelMap(pv_list, max_voxel_size, max_layer, layer_size,
+                      max_points_size, max_points_size, min_eigen_value,
+                      voxel_map);
+        std::cout << "build voxel map" << std::endl;
+
+        if (publish_voxel_map) {
+            // current_state_point = kf.get_x();
+            pubVoxelMap(voxel_map, publish_max_voxel_layer, voxel_map_pub);
+            publish_frame_world(pubLaserCloudFull);
+            publish_frame_body(pubLaserCloudFull_body);
+        }
+        init_map = true;
+        // continue;
+        return;
+    }
+
+    /*** downsample the feature points in a scan ***/
+    downSizeFilterSurf.setInputCloud(feats_undistort);
+    downSizeFilterSurf.filter(*feats_down_body);
+    // std::cout << "feats size:" << feats_undistort->size()
+    //                   << ", down size:" << feats_down_body->size() << std::endl;
+    // 如果首次下采样点数量还是太多(一般是大场景,不需要这么多点) 那么就adaptive 再次下采样
+    if (adaptive_voxelization) {
+        size_t feats_down_size_first = feats_down_body->points.size();
+        // 倒序查找LUT确定下采样的粒度
+        // XXX 需要保证LUT是升序的!
+        int search_idx;
+        bool is_found = false;
+        if (feats_down_size_first < adaptive_threshold[0]) {
+            // LUT的第一个值是特殊保护值,用于退化环境升采样
+            // 如果点数太少了,少于保护值, 那么反倒进行升采样, 防止退化
+            search_idx = 0;
+            is_found = true;
+        } else{
+            for (search_idx = adaptive_threshold.size() - 1; search_idx > 0; search_idx--) {
+                // std::printf("\n %ld %ld %f %f\n",
+                //            search_idx, adaptive_threshold.size(), adaptive_threshold[search_idx], adaptive_multiple_factor[search_idx]);
+                // 首次大于阈值, 就用对应的下采样粒度
+                if (feats_down_size_first > adaptive_threshold[search_idx]) {
+                    is_found = true;
+                    break;
+                }
+            }
+        }
+        // 如果查找到LUT中的某个阈值, 就用对应的粒度下采样
+        if (is_found) {
+            float leaf_size_scaled = filter_size_surf_min * adaptive_multiple_factor[search_idx];
+            downSizeFilterAdaptive.setLeafSize(leaf_size_scaled, leaf_size_scaled, leaf_size_scaled);
+            if (leaf_size_scaled < filter_size_surf_min) {
+                // 升采样 用原始点云
+                downSizeFilterAdaptive.setInputCloud(feats_undistort);
+            } else {
+                downSizeFilterAdaptive.setInputCloud(feats_down_body);
+            }
+            downSizeFilterAdaptive.filter(*feats_down_body);
+            std::printf("ADV: RAW: %10ld | First:  %10ld | Adap: %10ld, %5fpts, %5fm\n",
+                        feats_undistort->size(),
+                        feats_down_size_first,
+                        feats_down_body->size(),
+                        adaptive_threshold[search_idx],
+                        leaf_size_scaled);
+        }
+    }
+
+    sort(feats_down_body->points.begin(), feats_down_body->points.end(), time_list);
+
+    feats_down_size = feats_down_body->points.size();
+    // 由于点云的body var是一直不变的 因此提前计算 在迭代时可以复用
+    var_down_body.clear();
+    for (auto & pt:feats_down_body->points) {
+        V3D point_this(pt.x, pt.y, pt.z);
+        var_down_body.push_back(calcBodyCov(point_this, ranging_cov, angle_cov));
+    }
+
+    /*** ICP and iterated Kalman filter update ***/
+    if (feats_down_size < 5)
+    {
+        ROS_WARN("Too few points (<5 points), skip this scan!\n");
+        // continue;
+        return;
+    }
+    // ===============================================================================================================
+    // 开始迭代滤波
+    /*** iterated state estimation ***/
+    double solve_H_time = 0;
+    kf.update_iterated_dyn_share_diagonal();
+//            kf.update_iterated_dyn_share_modified(LASER_POINT_COV, solve_H_time);
+    double t_optimize_end = omp_get_wtime();
+    sum_optimize_time += t_optimize_end - t_optimize_start;
+
+    state_point = kf.get_x();
+
+//    // HACK 强行重置ba bg
+//    state_point.ba.setZero();
+//    state_point.bg.setZero();
+//    kf.change_x(state_point);
+
+    euler_cur = SO3ToEuler(state_point.rot);
+    // pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
+    geoQuat.x = state_point.rot.coeffs()[0];
+    geoQuat.y = state_point.rot.coeffs()[1];
+    geoQuat.z = state_point.rot.coeffs()[2];
+    geoQuat.w = state_point.rot.coeffs()[3];
+
+    // ===============================================================================================================
+    // 更新地图
+    /*** add the points to the voxel map ***/
+    double t_update_start = omp_get_wtime();
+    // 用最新的状态估计将点及点的covariance转换到world系
+    std::vector<pointWithCov> pv_list;
+    PointCloudXYZI::Ptr world_lidar(new PointCloudXYZI);
+    transformLidar(state_point, feats_down_body, world_lidar);
+    for (size_t i = 0; i < feats_down_body->size(); i++) {
+        // 保存body系和world系坐标
+        pointWithCov pv;
+        pv.point << feats_down_body->points[i].x, feats_down_body->points[i].y, feats_down_body->points[i].z;
+        // 计算lidar点的cov
+        // FIXME 这里错误的使用世界系的点来calcBodyCov时 反倒在某些seq（比如hilti2022的03 15）上效果更好 需要考虑是不是init_plane时使用更大的cov更好
+        // 注意这个在每次迭代时是存在重复计算的 因为lidar系的点云covariance是不变的
+        // M3D cov_lidar = calcBodyCov(pv.point, ranging_cov, angle_cov);
+        M3D cov_lidar = var_down_body[i];
+        // 将body系的var转换到world系
+        M3D cov_world = transformLiDARCovToWorld(pv.point, kf, cov_lidar);
+
+        // 最终updateVoxelMap需要用的是world系的point
+        pv.cov = cov_world;
+        pv.point << world_lidar->points[i].x, world_lidar->points[i].y, world_lidar->points[i].z;
+        pv.intensity = world_lidar->points[i].intensity;
+        pv_list.push_back(pv);
+    }
+
+    // 当前state point 赋值
+    current_state_point = kf.get_x();
+    std::sort(pv_list.begin(), pv_list.end(), var_contrast);
+    updateVoxelMapOMP(pv_list, max_voxel_size, max_layer, layer_size,
+                      max_points_size, max_points_size, min_eigen_value,
+                      voxel_map);
+    double t_update_end = omp_get_wtime();
+    sum_update_time += t_update_end - t_update_start;
+    scan_index++;
+}
+
 void savePathAsTUM(const nav_msgs::Path& path, const std::string& filename) {
     // 打开文件，准备写入
     std::ofstream file(filename);
@@ -1371,14 +1600,33 @@ int main(int argc, char** argv)
     signal(SIGINT, SigHandle);
     ros::Rate rate(5000);
     bool status = ros::ok();
+    float Similarity_rate=1.0f;
     while (status)
     {
         if (flg_exit) break;
         ros::spinOnce();
         if(sync_packages(Measures))
         {
-            // execute one step
-            execute();
+            //   cout<<"----- "<<Similarity_rate<<endl;
+            if( measure_buffer.size()>= max_queue_size && Similarity_rate<0.3f ){
+                cout<<"succuess ___________________________________________________________________________ "<<Similarity_rate<<endl;
+                while (measure_buffer.size() > 0)
+                {
+                    Measures = measure_buffer.front();
+                    measure_buffer.pop();
+                    flg_first_scan = true;
+                    init_map = true;
+                    executeT();
+                }
+            }else{
+                execute();
+                Similarity_rate = checkSimilarity(feats_down_body,last_feats_down_body);
+                measure_buffer.push(Measures);
+                if( measure_buffer.size() > max_queue_size ){
+                    measure_buffer.pop();
+                }
+                pcl::copyPointCloud(*feats_down_body, *last_feats_down_body);
+            }
         }
 
         status = ros::ok();
