@@ -15,10 +15,10 @@
     <!--- package to Velodyne -->
     <!-- <node pkg="state_estimation" type="package_to_pointcloud2" name="package_to_pointcloud2" output="screen"/> -->
 
-    <group if="$(arg rviz)">
+    <!-- <group if="$(arg rviz)">
         <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz"
               args="-d $(find state_estimation)/config/rviz_cfg/rs16.rviz"/>
-    </group>
+    </group> -->
     <!-- <group if="$(arg rviz)">
         <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz_raw"
               args="-d $(find state_estimation)/config/rviz_cfg/raw_rs16.rviz"/>

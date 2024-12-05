@@ -877,7 +877,7 @@ void updateVoxelMapOMP(const std::vector<pointWithCov> &input_points,
 
     if(merge_mode && feat_map[position]->plane_ptr_->is_plane){
         merge_voxel_map(feat_map, position);
-       std::cout<<"merge  size "<<merge_count <<std::endl;
+      //  std::cout<<"merge  size "<<merge_count <<std::endl;
     }
   }
 
