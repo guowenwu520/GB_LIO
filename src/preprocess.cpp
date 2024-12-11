@@ -48,7 +48,7 @@ void Preprocess::process(const livox_ros_driver::CustomMsg::ConstPtr &msg, Point
   *pcl_out = pl_surf;
 }
 
-void Preprocess::process(const sensor_msgs::PointCloud2::ConstPtr &msg, PointCloudXYZI::Ptr &pcl_out)
+void Preprocess::process(const sensor_msgs::PointCloud2::ConstPtr &msg, PointCloudXYZI::Ptr &pcl_out, PointCloudXYZI::Ptr &pcl_out2)
 {
   switch (lidar_type)
   {
@@ -65,6 +65,7 @@ void Preprocess::process(const sensor_msgs::PointCloud2::ConstPtr &msg, PointClo
     break;
   }
   *pcl_out = pl_surf;
+  *pcl_out2 = pl_surf2;
 }
 
 void Preprocess::avia_handler(const livox_ros_driver::CustomMsg::ConstPtr &msg)
@@ -266,6 +267,7 @@ void Preprocess::oust64_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
 void Preprocess::velodyne_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
 {
     pl_surf.clear();
+    pl_surf2.clear();
     pl_corn.clear();
     pl_full.clear();
 
@@ -354,6 +356,7 @@ void Preprocess::velodyne_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
 
     // std::printf("points: %ld\n", plsize);
     pl_surf.reserve(plsize);
+    // pl_surf2.reserve(plsize/2);
 
     /*** These variables only works when no point timestamps given ***/
     double omega_l = 0.361 * SCAN_RATE;       // scan angular velocity
@@ -494,9 +497,9 @@ void Preprocess::velodyne_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
         added_pt.intensity = pl_orig.points[i].intensity;
         added_pt.curvature = pl_orig.points[i].time * 1000.0;  // curvature unit: ms
 
+        int layer = pl_orig.points[i].ring;
         if (!given_offset_time)
         {
-          int layer = pl_orig.points[i].ring;
           double yaw_angle = atan2(added_pt.y, added_pt.x) * 57.2957;
 
           if (is_first[layer])
@@ -530,7 +533,11 @@ void Preprocess::velodyne_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
         {
           if(added_pt.x*added_pt.x+added_pt.y*added_pt.y+added_pt.z*added_pt.z > (blind * blind))
           {
-            pl_surf.points.push_back(added_pt);
+            // if(layer<8){
+               pl_surf.points.push_back(added_pt);
+            // }else{
+            //    pl_surf2.points.push_back(added_pt);
+            // }
           }
         }
       }

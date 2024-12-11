@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(state_estimation)
 
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../cpp/kiss_icp ${CMAKE_CURRENT_BINARY_DIR}/kiss_icp)
 #SET(CMAKE_BUILD_TYPE "Debug")
 #set(CMAKE_CXX_FLAGS "-std=c++11")
 set(CMAKE_BUILD_TYPE "Release")
@@ -101,8 +102,9 @@ catkin_package(
   INCLUDE_DIRS
 )
 
-add_executable(${PROJECT_NAME}_node src/voxelMapping.cpp src/preprocess.cpp)
-target_link_libraries(${PROJECT_NAME}_node ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${PYTHON_LIBRARIES}  ${OpenCV_LIBS})
+
+add_executable(${PROJECT_NAME}_node src/voxelMapping.cpp src/preprocess.cpp src/icp/Utils.hpp src/icp/icpServer.cpp src/icp/icpServer.hpp)
+target_link_libraries(${PROJECT_NAME}_node kiss_icp::pipeline ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${PYTHON_LIBRARIES}  ${OpenCV_LIBS})
 target_include_directories(${PROJECT_NAME}_node PRIVATE ${PYTHON_INCLUDE_DIRS})
 
 add_executable(pandar_to_velodyne src/converter/pandar_to_velodyne.cpp)
