@@ -29,7 +29,7 @@
 #include "Utils.hpp"
 
 // KISS-ICP
-#include "kiss_icp/pipeline/KissICP.hpp"
+#include "GBICP.hpp"
 
 // ROS 1 headers
 #include <geometry_msgs/PoseStamped.h>
@@ -52,76 +52,73 @@
 #include <tf/transform_datatypes.h>
 #include <tf/transform_broadcaster.h>
 
-#include <pcl/point_cloud.h>    // For pcl::PointCloud
-#include <pcl/point_types.h>    // For pcl::PointXYZI
-typedef pcl::PointXYZINormal PointType;
-typedef pcl::PointCloud<PointType> PointCloudXYZI;
-
+#include <pcl/point_cloud.h> // For pcl::PointCloud
+#include <pcl/point_types.h> // For pcl::PointXYZI
 
 #include <string>
 
-namespace kiss_icp_ros {
-struct PoseData
+namespace kiss_icp_ros
 {
-    ros::Time stamp;
-    Sophus::SE3d pose;
-};
+    struct PoseData
+    {
+        ros::Time stamp;
+        Sophus::SE3d pose;
+    };
 
-class IcpServer {
-public:
-    /// OdometryServer constructor
-    IcpServer(ros::NodeHandle &nh);
-    /// Register new frame
-    void RegisterFrame(const PointCloudXYZI::Ptr &input_cloud, geometry_msgs::PoseStamped &esk_pose,const ros::Time &stamp);
-    std::vector<PoseData> Poses();
+    class IcpServer
+    {
+    public:
+        /// OdometryServer constructor
+        IcpServer(ros::NodeHandle &nh);
+        /// Register new frame
+        void RegisterFrame(const PointCloudXYZI::Ptr &input_cloud, geometry_msgs::PoseStamped &esk_pose, const ros::Time &stamp, std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map);
+        std::vector<PoseData> Poses();
 
-private:
+    private:
+        /// Stream the estimated pose to ROS
+        void PublishOdometry(const Sophus::SE3d &pose,
+                             const ros::Time &stamp);
 
-    /// Stream the estimated pose to ROS
-    void PublishOdometry(const Sophus::SE3d &pose,
-                         const ros::Time &stamp);
+        /// Stream the debugging point clouds for visualization (if required)
+        void PublishClouds(const std::vector<Eigen::Vector3d> frame,
+                           const std::vector<Eigen::Vector3d> keypoints,
+                           const ros::Time &stamp,
+                           Sophus::SE3d cloud2odom);
+        void publish_odometry(const ros::Publisher &pubOdomAftMapped, geometry_msgs::PoseStamped &esk_pose);
 
-    /// Stream the debugging point clouds for visualization (if required)
-    void PublishClouds(const std::vector<Eigen::Vector3d> frame,
-                                   const std::vector<Eigen::Vector3d> keypoints,
-                                   const ros::Time &stamp,
-                                    Sophus::SE3d cloud2odom);
-    void publish_odometry(const ros::Publisher & pubOdomAftMapped,geometry_msgs::PoseStamped &esk_pose);
+        /// Utility function to compute transformation using tf tree
+        Sophus::SE3d LookupTransform(const std::string &target_frame,
+                                     const std::string &source_frame) const;
 
-    /// Utility function to compute transformation using tf tree
-    Sophus::SE3d LookupTransform(const std::string &target_frame,
-                                 const std::string &source_frame) const;
+        /// Ros node stuff
+        ros::NodeHandle nh_;
+        ros::NodeHandle pnh_;
+        int queue_size_ = 100000;
+        std::vector<PoseData> poses_with_data;
 
-    /// Ros node stuff
-    ros::NodeHandle nh_;
-    ros::NodeHandle pnh_;
-    int queue_size_ = 100000;
-    std::vector<PoseData> poses_with_data;
+        /// Tools for broadcasting TFs.
+        tf2_ros::TransformBroadcaster *tf_broadcaster_;
+        tf2_ros::Buffer *tf2_buffer_;
+        tf2_ros::TransformListener *tf2_listener_;
+        nav_msgs::Odometry odomAftMapped;
 
-    /// Tools for broadcasting TFs.
-    tf2_ros::TransformBroadcaster* tf_broadcaster_;
-    tf2_ros::Buffer* tf2_buffer_;
-    tf2_ros::TransformListener* tf2_listener_;
-    nav_msgs::Odometry odomAftMapped;
+        bool publish_odom_tf_;
+        bool publish_debug_clouds_;
 
-    bool publish_odom_tf_;
-    bool publish_debug_clouds_;
+        /// Data publishers.
+        ros::Publisher odom_publisher_;
+        ros::Publisher frame_publisher_;
+        ros::Publisher kpoints_publisher_;
+        ros::Publisher map_publisher_;
+        ros::Publisher traj_publisher_;
+        nav_msgs::Path path_msg_;   
 
-    /// Data publishers.
-    ros::Publisher odom_publisher_;
-    ros::Publisher frame_publisher_;
-    ros::Publisher kpoints_publisher_;
-    ros::Publisher map_publisher_;
-    ros::Publisher traj_publisher_;
-    nav_msgs::Path path_msg_;
+        /// KISS-ICP
+        KissICP odometry_;
 
-    /// KISS-ICP
-    kiss_icp::pipeline::KissICP odometry_;
-    kiss_icp::pipeline::KISSConfig config_;
+        /// Global/map coordinate frame.
+        std::string odom_frame_{"camera_init"};
+        std::string base_frame_{"st_body"};
+    };
 
-    /// Global/map coordinate frame.
-    std::string odom_frame_{"camera_init"};
-    std::string base_frame_{"st_body"};
-};
-
-}  // namespace kiss_icp_ros
+} // namespace kiss_icp_ros

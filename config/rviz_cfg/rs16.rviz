@@ -6,6 +6,7 @@ Panels:
       Expanded:
         - /Global Options1
         - /mapping1
+        - /mapping1/surround1
         - /mapping1/currPoints1
         - /mapping1/currPoints1/Autocompute Value Bounds1
         - /Odometry1
@@ -15,10 +16,7 @@ Panels:
         - /Legend1
         - /Path2
         - /Odometry3
-        - /Path3
         - /PointCloud21
-        - /PointCloud22
-        - /PointCloud23
       Splitter Ratio: 0.5747422575950623
     Tree Height: 782
   - Class: rviz/Selection
@@ -75,7 +73,7 @@ Visualization Manager:
       Value: false
     - Class: rviz/Group
       Displays:
-        - Alpha: 0.10000000149011612
+        - Alpha: 1
           Autocompute Intensity Bounds: true
           Autocompute Value Bounds:
             Max Value: 10
@@ -84,25 +82,25 @@ Visualization Manager:
           Axis: Z
           Channel Name: intensity
           Class: rviz/PointCloud2
-          Color: 255; 255; 255
+          Color: 255; 255; 2
           Color Transformer: FlatColor
-          Decay Time: 0.30000001192092896
-          Enabled: false
+          Decay Time: 0
+          Enabled: true
           Invert Rainbow: false
           Max Color: 255; 255; 255
           Min Color: 0; 0; 0
           Name: surround
           Position Transformer: XYZ
-          Queue Size: 1
+          Queue Size: 10
           Selectable: false
-          Size (Pixels): 1
+          Size (Pixels): 3
           Size (m): 0.019999999552965164
-          Style: Flat Squares
+          Style: Points
           Topic: /cloud_registered
           Unreliable: false
           Use Fixed Frame: true
           Use rainbow: true
-          Value: false
+          Value: true
         - Alpha: 0.09000000357627869
           Autocompute Intensity Bounds: false
           Autocompute Value Bounds:
@@ -312,7 +310,7 @@ Visualization Manager:
       Buffer Length: 1
       Class: rviz/Path
       Color: 2; 255; 0
-      Enabled: true
+      Enabled: false
       Head Diameter: 0.30000001192092896
       Head Length: 0.20000000298023224
       Length: 0.30000001192092896
@@ -331,7 +329,7 @@ Visualization Manager:
       Shaft Length: 0.10000000149011612
       Topic: /kiss/trajectory
       Unreliable: false
-      Value: true
+      Value: false
     - Angle Tolerance: 0.10000000149011612
       Class: rviz/Odometry
       Covariance:
@@ -368,90 +366,10 @@ Visualization Manager:
       Unreliable: false
       Value: true
     - Alpha: 1
-      Buffer Length: 1
-      Class: rviz/Path
-      Color: 235; 235; 23
-      Enabled: false
-      Head Diameter: 0.30000001192092896
-      Head Length: 0.20000000298023224
-      Length: 0.30000001192092896
-      Line Style: Lines
-      Line Width: 0.029999999329447746
-      Name: Path
-      Offset:
-        X: 0
-        Y: 0
-        Z: 0
-      Pose Color: 255; 85; 255
-      Pose Style: None
-      Queue Size: 10
-      Radius: 0.029999999329447746
-      Shaft Diameter: 0.10000000149011612
-      Shaft Length: 0.10000000149011612
-      Topic: /key_path
-      Unreliable: false
-      Value: false
-    - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 10
-        Min Value: -10
-        Value: true
-      Axis: Z
-      Channel Name: intensity
-      Class: rviz/PointCloud2
-      Color: 5; 255; 255
-      Color Transformer: FlatColor
-      Decay Time: 0
-      Enabled: true
-      Invert Rainbow: false
-      Max Color: 255; 25; 255
-      Min Color: 0; 234; 0
-      Name: PointCloud2
-      Position Transformer: XYZ
-      Queue Size: 10
-      Selectable: true
-      Size (Pixels): 2
-      Size (m): 0.009999999776482582
-      Style: Points
-      Topic: /kiss/local_map
-      Unreliable: false
-      Use Fixed Frame: true
-      Use rainbow: true
-      Value: true
-    - Alpha: 1
-      Autocompute Intensity Bounds: true
-      Autocompute Value Bounds:
-        Max Value: 20.435890197753906
-        Min Value: -1.9454865455627441
-        Value: true
-      Axis: Z
-      Channel Name: intensity
-      Class: rviz/PointCloud2
-      Color: 255; 255; 5
-      Color Transformer: FlatColor
-      Decay Time: 0
-      Enabled: false
-      Invert Rainbow: false
-      Max Color: 255; 255; 2
-      Min Color: 0; 0; 234
-      Name: PointCloud2
-      Position Transformer: XYZ
-      Queue Size: 10
-      Selectable: true
-      Size (Pixels): 3
-      Size (m): 0.009999999776482582
-      Style: Flat Squares
-      Topic: /kiss/keypoints
-      Unreliable: false
-      Use Fixed Frame: true
-      Use rainbow: true
-      Value: false
-    - Alpha: 1
-      Autocompute Intensity Bounds: true
-      Autocompute Value Bounds:
-        Max Value: 18.251916885375977
-        Min Value: -5.911187171936035
+        Max Value: 7.765338897705078
+        Min Value: -0.4617297053337097
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -469,7 +387,7 @@ Visualization Manager:
       Selectable: true
       Size (Pixels): 3
       Size (m): 0.009999999776482582
-      Style: Flat Squares
+      Style: Points
       Topic: /kiss/frame
       Unreliable: false
       Use Fixed Frame: true
@@ -503,7 +421,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/XYOrbit
-      Distance: 20.52440071105957
+      Distance: 92.80007934570312
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -519,9 +437,9 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: -0.1702035814523697
+      Pitch: -0.08020369708538055
       Target Frame: camera_init
-      Yaw: 1.2835808992385864
+      Yaw: 2.390428066253662
     Saved: ~
 Window Geometry:
   Displays:

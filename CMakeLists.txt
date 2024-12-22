@@ -1,24 +1,21 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.10)
 project(state_estimation)
 
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../cpp/kiss_icp ${CMAKE_CURRENT_BINARY_DIR}/kiss_icp)
-#SET(CMAKE_BUILD_TYPE "Debug")
-#set(CMAKE_CXX_FLAGS "-std=c++11")
 set(CMAKE_BUILD_TYPE "Release")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g -pthread")
-#set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g -pthread")
 
-ADD_COMPILE_OPTIONS(-std=c++17 )
-set( CMAKE_CXX_FLAGS "-std=c++17 -O3" )
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g -pthread")
 
 add_definitions(-DROOT_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/\")
 
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fexceptions" )
-set(CMAKE_CXX_STANDARD 17)
+# set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fexceptions" )
+set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -I/usr/include/c++/9 -pthread -std=c++11 -std=c++14 -std=c++17 -fexceptions")
+set(CMAKE_CXX_COMPILER g++) 
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -pthread -std=c++0x -std=c++14 -fexceptions")
+
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -pthread -std=c++0x -std=c++17 -fexceptions")
 set(livox_ros_driver_DIR "/home/guowenwu/workspace/Indoor_SLAM/livox_driver_ws/devel/.private/livox_ros_driver/share/livox_ros_driver/cmake/")
 set(CUDA_TOOLKIT_ROOT_DIR /usr/local/cuda-11.5)
 
@@ -72,7 +69,7 @@ find_package(catkin REQUIRED COMPONENTS
   message_generation
   eigen_conversions
 )
-
+find_package(Sophus REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(PCL 1.8 REQUIRED)
 #find_package(GTSAM REQUIRED QUIET)
@@ -102,9 +99,8 @@ catkin_package(
   INCLUDE_DIRS
 )
 
-
-add_executable(${PROJECT_NAME}_node src/voxelMapping.cpp src/preprocess.cpp src/icp/Utils.hpp src/icp/icpServer.cpp src/icp/icpServer.hpp)
-target_link_libraries(${PROJECT_NAME}_node kiss_icp::pipeline ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${PYTHON_LIBRARIES}  ${OpenCV_LIBS})
+add_executable(${PROJECT_NAME}_node src/voxelMapping.cpp src/preprocess.cpp src/icp/GBICP.cpp src/icp/icpServer.cpp src/util/voxel_map_util.cpp src/util/common_lib.cpp src/util/use-ikfom.cpp)
+target_link_libraries(${PROJECT_NAME}_node  Sophus::Sophus   ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${PYTHON_LIBRARIES}  ${OpenCV_LIBS})
 target_include_directories(${PROJECT_NAME}_node PRIVATE ${PYTHON_INCLUDE_DIRS})
 
 add_executable(pandar_to_velodyne src/converter/pandar_to_velodyne.cpp)
