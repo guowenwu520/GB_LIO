@@ -873,6 +873,8 @@ void updateVoxelMapOMP(const std::vector<pointWithCov> &input_points,
     }
   }
 
+
+
   double t_insert_end = omp_get_wtime();
   // double t_update_start = omp_get_wtime();
   // 并行延迟更新
@@ -1003,6 +1005,37 @@ void build_single_residual(const pointWithCov &pv, const OctoTree *current_octo,
       return;
     }
   }
+}
+
+
+void SavePointCloudToPLY(const std::vector<Eigen::Vector3d> &points, const std::string &filename)
+{
+    // 打开文件
+    std::ofstream ply_file(filename);
+    if (!ply_file.is_open())
+    {
+        std::cerr << "无法打开文件: " << filename << std::endl;
+        return;
+    }
+
+    // 写入 PLY 文件头
+    ply_file << "ply\n";
+    ply_file << "format ascii 1.0\n";
+    ply_file << "element vertex " << points.size() << "\n";
+    ply_file << "property float x\n";
+    ply_file << "property float y\n";
+    ply_file << "property float z\n";
+    ply_file << "end_header\n";
+
+    // 写入点数据
+    for (const auto &point : points)
+    {
+        ply_file << point.x() << " " << point.y() << " " << point.z() << "\n";
+    }
+
+    // 关闭文件
+    ply_file.close();
+    std::cout << "点云已保存到文件: " << filename << std::endl;
 }
 
 void GetUpdatePlane(const OctoTree *current_octo, const int pub_max_voxel_layer,

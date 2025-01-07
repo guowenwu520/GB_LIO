@@ -218,5 +218,6 @@ void GetPointsInVoxel(const OctoTree *current_octo, const int pub_max_voxel_laye
 void pubColoredVoxels(const std::unordered_map<VOXEL_LOC, OctoTree *> &voxel_map, const int pub_max_voxel_layer, const ros::Publisher &voxel_map_pub, double lidar_end_time);
 
 M3D calcBodyCov(Eigen::Vector3d &pb, const float range_inc, const float degree_inc);
+void SavePointCloudToPLY(const std::vector<Eigen::Vector3d> &points, const std::string &filename);
 
 #endif

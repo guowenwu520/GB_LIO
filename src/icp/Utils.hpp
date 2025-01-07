@@ -159,7 +159,7 @@ namespace tf2
 
 } // namespace tf2
 
-namespace kiss_icp_ros::utils
+namespace gb_icp_ros::utils
 {
     using PointCloud2 = sensor_msgs::PointCloud2;
     using PointField = sensor_msgs::PointField;
@@ -343,4 +343,4 @@ namespace kiss_icp_ros::utils
         FillPointCloud2Timestamp(timestamps, *msg);
         return msg;
     }
-} // namespace kiss_icp_ros::utils
+} // namespace gb_icp_ros::utils

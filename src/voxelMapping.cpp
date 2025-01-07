@@ -187,7 +187,7 @@ bool hide_flg_first_scan = true;
 geometry_msgs::Quaternion hide_geoQuat;
 
 // 思路三
-kiss_icp_ros::IcpServer *icpServer;
+gb_icp_ros::IcpServer *icpServer;
 
 nav_msgs::Path path;
 nav_msgs::Path keyPath;
@@ -715,29 +715,6 @@ void transformLidar(const state_ikfom &state_point, const PointCloudXYZI::Ptr &i
     }
 }
 
-// M3D transformLiDARCovToWorld(Eigen::Vector3d &p_lidar, const esekfom::esekf<state_ikfom, 12, input_ikfom>& kf, const Eigen::Matrix3d& COV_lidar)
-//{
-//     double match_start = omp_get_wtime();
-//     // FIXME 这里首先假定LiDAR系和body是重叠的 没有外参
-//     M3D point_crossmat;
-//     point_crossmat << SKEW_SYM_MATRX(p_lidar);
-//     // 注意这里Rt的cov顺序
-//     M3D rot_var = kf.get_P().block<3, 3>(3, 3);
-//     M3D t_var = kf.get_P().block<3, 3>(0, 0);
-//     auto state = kf.get_x();
-//
-//     // Eq. (3)
-//     M3D COV_world =
-//             state.rot * COV_lidar * state.rot.conjugate()
-//             + state.rot * (-point_crossmat) * rot_var * (-point_crossmat).transpose()  * state.rot.conjugate()
-//             + t_var;
-//     return COV_world;
-//     // Voxel map 真实实现
-////    M3D cov_world = R_body * COV_lidar * R_body.conjugate() +
-////          (-point_crossmat) * rot_var * (-point_crossmat).transpose() + t_var;
-//
-//}
-
 M3D transformLiDARCovToWorld(Eigen::Vector3d &p_lidar, const esekfom::esekf<state_ikfom, 12, input_ikfom> &kf, const Eigen::Matrix3d &COV_lidar)
 {
     M3D point_crossmat;
@@ -1229,13 +1206,6 @@ void execute()
     geoQuat.z = state_point.rot.coeffs()[2];
     geoQuat.w = state_point.rot.coeffs()[3];
 
-    if (icp_en)
-    {
-        set_posestamp(msg_body_pose);
-        icpServer->RegisterFrame(feats_down_body, msg_body_pose, ros::Time().fromSec(lidar_end_time), voxel_map);
-        // icpServer->RegisterFrame(Measures .lidar,msg_body_pose,ros::Time().fromSec(lidar_end_time));
-    }
-
     // ===============================================================================================================
     // 更新地图
     /*** add the points to the voxel map ***/
@@ -1273,6 +1243,33 @@ void execute()
     double t_update_end = omp_get_wtime();
     sum_update_time += t_update_end - t_update_start;
     scan_index++;
+
+    if (icp_en)
+    {
+        set_posestamp(msg_body_pose);
+        icpServer->RegisterFrame(feats_down_body, msg_body_pose, ros::Time().fromSec(lidar_end_time), voxel_map);
+        // icpServer->RegisterFrame(Measures .lidar,msg_body_pose,ros::Time().fromSec(lidar_end_time));
+    }
+    double weight_kf = 0.8;  // kf的权重
+    double weight_icp = 0.2; // hide_kf的权重
+
+    Sophus::SE3d icp_state_point = icpServer->Poses().back().pose;
+
+    Eigen::Vector3d translation = icp_state_point.translation();
+    Eigen::Quaterniond quaternion(icp_state_point.unit_quaternion());
+
+    // state_ikfom avg_st;
+
+    state_point.pos[0] = (translation.x() * weight_icp + state_point.pos(0) * weight_kf);
+    state_point.pos[1] = (translation.y() * weight_icp + state_point.pos(1) * weight_kf);
+    state_point.pos[2] = (translation.z() * weight_icp + state_point.pos(2) * weight_kf);
+    state_point.rot.coeffs()[0] = (quaternion.x() * weight_icp + geoQuat.x * weight_kf);
+    state_point.rot.coeffs()[1] = (quaternion.y() * weight_icp + geoQuat.y * weight_kf);
+    state_point.rot.coeffs()[2] = (quaternion.z() * weight_icp + geoQuat.z * weight_kf);
+    state_point.rot.coeffs()[3] = (quaternion.w() * weight_icp + geoQuat.w * weight_kf);
+
+    kf.change_x(state_point);
+
     // ===============================================================================================================
     // 可视化相关
     /******* Publish odometry *******/
@@ -1487,7 +1484,7 @@ void hide_execute()
         publish_key_path(pubKeyPath);
 }
 
-void savePathAsTUM(const std::vector<kiss_icp_ros::PoseData> &path, const std::string &filename)
+void savePathAsTUM(const std::vector<gb_icp_ros::PoseData> &path, const std::string &filename)
 {
     // 打开文件
     std::ofstream file(filename);
@@ -1696,7 +1693,7 @@ int main(int argc, char **argv)
 
     if (icp_en)
     {
-        icpServer = new kiss_icp_ros::IcpServer(nh);
+        icpServer = new gb_icp_ros::IcpServer(nh);
     }
 
     /*** ROS subscribe initialization ***/

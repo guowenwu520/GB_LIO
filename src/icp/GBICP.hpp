@@ -41,14 +41,17 @@ extern double max_range_;
 extern double min_range_;
 extern int max_points_per_voxel_;
 
+extern double convergence_criterion;
+extern int max_num_iterations;
+
 // th parms
 extern double min_motion_th_;
 extern double initial_threshold_;
 
-// Motion compensation
-extern bool deskew_ ;
-struct ResultTuple {
-    ResultTuple(std::size_t n) {
+struct ResultTuple
+{
+    ResultTuple(std::size_t n)
+    {
         source.reserve(n);
         target.reserve(n);
     }
@@ -56,13 +59,16 @@ struct ResultTuple {
     std::vector<Eigen::Vector3d> target;
 };
 
-struct ResultTupleLinear {
-    ResultTupleLinear() {
+struct ResultTupleLinear
+{
+    ResultTupleLinear()
+    {
         JTJ.setZero();
         JTr.setZero();
     }
 
-    ResultTupleLinear operator+(const ResultTupleLinear &other) {
+    ResultTupleLinear operator+(const ResultTupleLinear &other)
+    {
         this->JTJ += other.JTJ;
         this->JTr += other.JTr;
         return *this;
@@ -72,18 +78,20 @@ struct ResultTupleLinear {
     Vector6d JTr;
 };
 
-struct AdaptiveThreshold {
+struct AdaptiveThreshold
+{
     explicit AdaptiveThreshold(double initial_threshold, double min_motion_th, double max_range)
         : initial_threshold_(initial_threshold),
           min_motion_th_(min_motion_th),
           max_range_(max_range) {}
 
     /// Update the current belief of the deviation from the prediction model
-    inline void UpdateModelDeviation(const Sophus::SE3d &current_deviation) {
+    inline void UpdateModelDeviation(const Sophus::SE3d &current_deviation)
+    {
         model_deviation_ = current_deviation;
     }
 
-    /// Returns the KISS-ICP adaptive threshold used in registration
+    /// Returns the GB-ICP adaptive threshold used in registration
     double ComputeThreshold();
     double ComputeModelError(const Sophus::SE3d &model_deviation, double max_range);
     // configurable parameters
@@ -97,18 +105,16 @@ struct AdaptiveThreshold {
     Sophus::SE3d model_deviation_ = Sophus::SE3d();
 };
 
-class KissICP
+class GbICP
 {
 
-    int MAX_NUM_ITERATIONS_ = 500;
-    double ESTIMATION_THRESHOLD_ = 0.0001;
     inline double square(double x) { return x * x; }
 
 public:
-     explicit KissICP()
+    explicit GbICP()
         : adaptive_threshold_(initial_threshold_, min_motion_th_, max_range_) {}
     Vector3dVectorTuple GetCorrespondences(
-        const Vector3dVector &points, double max_correspondance_distance,const std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map);
+        const Vector3dVector &points, double max_correspondance_distance, const std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map);
     void TransformPoints(const Sophus::SE3d &T, std::vector<Eigen::Vector3d> &points);
     Sophus::SE3d PoseEstimate(const std::vector<Eigen::Vector3d> &frame,
                               const std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map,
@@ -119,14 +125,16 @@ public:
         const std::vector<Eigen::Vector3d> &source,
         const std::vector<Eigen::Vector3d> &target,
         double kernel);
-
+    std::vector<Eigen::Vector3d> loadCloud(const std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map) const;
     Vector3dVectorTuple RegisterFrame(const std::vector<Eigen::Vector3d> &frame, std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map);
+    std::vector<Eigen::Vector3d> Preprocess(const std::vector<Eigen::Vector3d> &frame,
+                                            double max_range,
+                                            double min_range);
     double GetAdaptiveThreshold();
     Sophus::SE3d GetPredictionModel() const;
     bool HasMoved();
 
 public:
-   
     std::vector<Sophus::SE3d> poses() const { return poses_; };
     void setPoses(Sophus::SE3d pose)
     {
@@ -141,7 +149,7 @@ public:
     };
 
 private:
-    // KISS-ICP pipeline modules
+    // GB-ICP pipeline modules
     std::vector<Sophus::SE3d> poses_;
     AdaptiveThreshold adaptive_threshold_;
 };

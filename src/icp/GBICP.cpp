@@ -33,32 +33,39 @@ double max_range_ = 100.0;
 double min_range_ = 5.0;
 int max_points_per_voxel_ = 20;
 
+double convergence_criterion = 0.0001;
+int max_num_iterations = 500;
+
 // th parms
 double min_motion_th_ = 0.1;
 double initial_threshold_ = 2.0;
 
 // Motion compensation
-bool deskew_ = false;
-double AdaptiveThreshold::ComputeModelError(const Sophus::SE3d &model_deviation, double max_range) {
+double AdaptiveThreshold::ComputeModelError(const Sophus::SE3d &model_deviation, double max_range)
+{
     const double theta = Eigen::AngleAxisd(model_deviation.rotationMatrix()).angle();
     const double delta_rot = 2.0 * max_range * std::sin(theta / 2.0);
     const double delta_trans = model_deviation.translation().norm();
     return delta_trans + delta_rot;
 }
-double AdaptiveThreshold::ComputeThreshold() {
+double AdaptiveThreshold::ComputeThreshold()
+{
     double model_error = ComputeModelError(model_deviation_, max_range_);
-    if (model_error > min_motion_th_) {
+    if (model_error > min_motion_th_)
+    {
         model_error_sse2_ += model_error * model_error;
         num_samples_++;
     }
 
-    if (num_samples_ < 1) {
+    if (num_samples_ < 1)
+    {
         return initial_threshold_;
     }
     return std::sqrt(model_error_sse2_ / num_samples_);
 }
-Vector3dVectorTuple KissICP::GetCorrespondences(
-    const Vector3dVector &points, double max_correspondance_distance, const std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map)
+
+Vector3dVectorTuple GbICP::GetCorrespondences(
+    const Vector3dVector &frame, double max_correspondance_distance, const std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map)
 {
     // Lambda Function to obtain the KNN of one point, maybe refactor
     auto GetClosestNeighboor = [&](const Eigen::Vector3d &point)
@@ -85,7 +92,7 @@ Vector3dVectorTuple KissICP::GetCorrespondences(
         std::for_each(voxels.cbegin(), voxels.cend(), [&](const auto &voxel)
                       {
             auto search = feat_map.find(voxel);
-            if (search != feat_map.end()) {
+            if (search != feat_map.end() && search->second->plane_ptr_->is_plane) {
                 const auto &points = search->second->all_points;
                 if (!points.empty()) {
                     for (const auto &point : points) {
@@ -109,9 +116,9 @@ Vector3dVectorTuple KissICP::GetCorrespondences(
     using points_iterator = std::vector<Eigen::Vector3d>::const_iterator;
     const auto [source, target] = tbb::parallel_reduce(
         // Range
-        tbb::blocked_range<points_iterator>{points.cbegin(), points.cend()},
+        tbb::blocked_range<points_iterator>{frame.cbegin(), frame.cend()},
         // Identity
-        ResultTuple(points.size()),
+        ResultTuple(frame.size()),
         // 1st lambda: Parallel computation
         [max_correspondance_distance, &GetClosestNeighboor](
             const tbb::blocked_range<points_iterator> &r, ResultTuple res) -> ResultTuple
@@ -145,18 +152,18 @@ Vector3dVectorTuple KissICP::GetCorrespondences(
     return std::make_tuple(source, target);
 }
 
-void KissICP::TransformPoints(const Sophus::SE3d &T, std::vector<Eigen::Vector3d> &points)
+void GbICP::TransformPoints(const Sophus::SE3d &T, std::vector<Eigen::Vector3d> &points)
 {
     std::transform(points.cbegin(), points.cend(), points.begin(),
                    [&](const auto &point)
                    { return T * point; });
 }
 
-Sophus::SE3d KissICP::PoseEstimate(const std::vector<Eigen::Vector3d> &frame,
-                                   const std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map,
-                                   const Sophus::SE3d &initial_guess,
-                                   double max_correspondence_distance,
-                                   double kernel)
+Sophus::SE3d GbICP::PoseEstimate(const std::vector<Eigen::Vector3d> &frame,
+                                 const std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map,
+                                 const Sophus::SE3d &initial_guess,
+                                 double max_correspondence_distance,
+                                 double kernel)
 {
     if (feat_map.empty())
         return initial_guess;
@@ -167,27 +174,67 @@ Sophus::SE3d KissICP::PoseEstimate(const std::vector<Eigen::Vector3d> &frame,
 
     // ICP-loop
     Sophus::SE3d T_icp = Sophus::SE3d();
-    for (int j = 0; j < MAX_NUM_ITERATIONS_; ++j)
+    int j = 0;
+    Vector6d dx;
+    // for (; j < max_num_iterations; ++j)
+    while (true)
     {
+        j++;
         // Equation (10)
         const auto &[src, tgt] = GetCorrespondences(source, max_correspondence_distance, feat_map);
+        if (j >= max_num_iterations)
+        {
+            SavePointCloudToPLY(source, "/home/guowenwu/workspace/Indoor_SLAM/gb_ws/output_source_no.ply");
+            SavePointCloudToPLY(src, "/home/guowenwu/workspace/Indoor_SLAM/gb_ws/output_src_no.ply");
+            SavePointCloudToPLY(tgt, "/home/guowenwu/workspace/Indoor_SLAM/gb_ws/output_tgt_no.ply");
+            break;
+        }
         // Equation (11)
         const auto &[JTJ, JTr] = BuildLinearSystem(src, tgt, kernel);
-        const Vector6d dx = JTJ.ldlt().solve(-JTr);
+        dx = JTJ.ldlt().solve(-JTr);
         const Sophus::SE3d estimation = Sophus::SE3d::exp(dx);
         // Equation (12)
         TransformPoints(estimation, source);
         // Update iterations
         T_icp = estimation * T_icp;
         // Termination criteria
-        if (dx.norm() < ESTIMATION_THRESHOLD_)
+        // std::cout << "ICP converged after false   norm = " << dx.norm() << std::endl;
+        if (dx.norm() < convergence_criterion)
+        {
+            // SavePointCloudToPLY(source, "/home/guowenwu/workspace/Indoor_SLAM/gb_ws/output_source.ply");
+            // SavePointCloudToPLY(src, "/home/guowenwu/workspace/Indoor_SLAM/gb_ws/output_src.ply");
+            // SavePointCloudToPLY(tgt, "/home/guowenwu/workspace/Indoor_SLAM/gb_ws/output_tgt.ply");
             break;
+        }
     }
+    // std::cout << "ICP converged after false   j = " << j << std::endl;
     // Spit the final transformation
     return T_icp * initial_guess;
 }
 
-std::tuple<Matrix6d, Vector6d> KissICP::BuildLinearSystem(const std::vector<Eigen::Vector3d> &source, const std::vector<Eigen::Vector3d> &target, double kernel)
+std::vector<Eigen::Vector3d> GbICP::loadCloud(const std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map) const
+{
+    std::vector<Eigen::Vector3d> a_points;
+    a_points.reserve(max_points_per_voxel_ * feat_map.size());
+    int i = 0;
+    for (const auto &pair : feat_map)
+    {
+        const auto &points = pair.second->all_points;
+        i++;
+        if (i > 5000)
+            break;
+        if (!points.empty())
+        {
+            for (const auto &point : points)
+            {
+                a_points.emplace_back(point);
+            }
+        }
+    }
+    return a_points;
+}
+
+std::tuple<Matrix6d, Vector6d> GbICP::BuildLinearSystem(const std::vector<Eigen::Vector3d> &source, const std::vector<Eigen::Vector3d> &target, double kernel)
 {
     auto compute_jacobian_and_residual = [&](auto i)
     {
@@ -227,31 +274,51 @@ std::tuple<Matrix6d, Vector6d> KissICP::BuildLinearSystem(const std::vector<Eige
     return std::make_tuple(JTJ, JTr);
 }
 
-Vector3dVectorTuple KissICP::RegisterFrame(const std::vector<Eigen::Vector3d> &frame, std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map)
+std::vector<Eigen::Vector3d> GbICP::Preprocess(const std::vector<Eigen::Vector3d> &frame,
+                                               double max_range,
+                                               double min_range)
 {
-    const double sigma = GetAdaptiveThreshold();
+    std::vector<Eigen::Vector3d> inliers;
+    std::copy_if(frame.cbegin(), frame.cend(), std::back_inserter(inliers), [&](const auto &pt)
+                 {
+        const double norm = pt.norm();
+        return norm < max_range && norm > min_range; });
+    return inliers;
+}
 
+Vector3dVectorTuple GbICP::RegisterFrame(const std::vector<Eigen::Vector3d> &frame, std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map)
+{
+    const auto &cropped_frame = Preprocess(frame, max_range_, min_range_);
+    // const double sigma = GetAdaptiveThreshold();
+    const double sigma = 0.1;
     // Compute initial_guess for ICP
-    const auto prediction = GetPredictionModel();
-    const auto last_pose = !poses_.empty() ? poses_.back() : Sophus::SE3d();
-    const auto initial_guess = last_pose * prediction;
+    // const auto prediction = GetPredictionModel();
+    // const auto last_pose = !poses_.empty() ? poses_.back() : Sophus::SE3d();
+    // const auto initial_guess = last_pose * prediction;
+    const auto initial_guess = !poses_.empty() ? poses_.back() : Sophus::SE3d();
 
     // Run icp
-    const Sophus::SE3d new_pose = PoseEstimate(frame,         //
+    const Sophus::SE3d new_pose = PoseEstimate(cropped_frame, //
                                                feat_map,      //
                                                initial_guess, //
                                                3.0 * sigma,   //
                                                sigma / 3.0);
+    // std::cout << "SE3: \n"
+    //           << new_pose.matrix() << std::endl; // 4x4 变换矩阵
+    // std::cout << "Rotation matrix: \n"
+    //           << new_pose.rotationMatrix() << std::endl; // 3x3 旋转矩阵
+    // std::cout << "Translation vector: \n"
+    //           << new_pose.translation().transpose() << std::endl; // 平移向量
     const auto model_deviation = initial_guess.inverse() * new_pose;
     adaptive_threshold_.UpdateModelDeviation(model_deviation);
     // local_map_.Update(frame, new_pose);
     // local_map_.Update(frame, last_pose);
     // std::cout<<" point size "<<local_map_.Pointcloud().size()<<std::endl;
     poses_.push_back(new_pose);
-    return {frame, frame};
+    return {frame, cropped_frame};
 }
 
-double KissICP::GetAdaptiveThreshold()
+double GbICP::GetAdaptiveThreshold()
 {
     if (!HasMoved())
     {
@@ -260,7 +327,7 @@ double KissICP::GetAdaptiveThreshold()
     return adaptive_threshold_.ComputeThreshold();
 }
 
-Sophus::SE3d KissICP::GetPredictionModel() const
+Sophus::SE3d GbICP::GetPredictionModel() const
 {
     Sophus::SE3d pred = Sophus::SE3d();
     const size_t N = poses_.size();
@@ -269,7 +336,7 @@ Sophus::SE3d KissICP::GetPredictionModel() const
     return poses_[N - 2].inverse() * poses_[N - 1];
 }
 
-bool KissICP::HasMoved()
+bool GbICP::HasMoved()
 {
     if (poses_.empty())
         return false;

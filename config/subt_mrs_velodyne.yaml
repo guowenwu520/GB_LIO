@@ -4,7 +4,7 @@ common:
     # cmu_rc7/imu/data   --> Laurel_Caverns
     # /imu/data   --> Long_Corridor
     # cmu_sp1/imu/data   --> MultiFloor
-    imu_topic:  "cmu_sp1/imu/data"
+    imu_topic:  "/imu/data"
     time_sync_en: false         # ONLY turn on when external time synchronization is really not possible
     icp_en: true
 
@@ -77,16 +77,11 @@ pcd_save:
     pcd_save_en: false
     interval: -1                 # how many LiDAR frames saved in each pcd file;
     # -1 : all frames will be saved in ONE pcd file, may lead to memory crash when having too much frames.
-kiss_icp:
-    deskew: True
-    preprocess: True
-    max_num_threads: 10
-    convergence_criterion: 0.0001
+gb_icp:
+    convergence_criterion: 0.0005
     max_num_iterations: 500
     min_motion_th: 0.1
     initial_threshold: 2.0
     max_range: 100
     min_range: 0.0
-    voxel_size: 0.25
-    max_points_per_voxel: 20
-    fixed_threshold: 0.3
+    max_points_per_voxel: 100

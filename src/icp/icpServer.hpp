@@ -28,7 +28,7 @@
 
 #include "Utils.hpp"
 
-// KISS-ICP
+// GB-ICP
 #include "GBICP.hpp"
 
 // ROS 1 headers
@@ -56,8 +56,9 @@
 #include <pcl/point_types.h> // For pcl::PointXYZI
 
 #include <string>
+#include <atomic>
 
-namespace kiss_icp_ros
+namespace gb_icp_ros
 {
     struct PoseData
     {
@@ -83,7 +84,7 @@ namespace kiss_icp_ros
         void PublishClouds(const std::vector<Eigen::Vector3d> frame,
                            const std::vector<Eigen::Vector3d> keypoints,
                            const ros::Time &stamp,
-                           Sophus::SE3d cloud2odom);
+                           Sophus::SE3d cloud2odom, std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map);
         void publish_odometry(const ros::Publisher &pubOdomAftMapped, geometry_msgs::PoseStamped &esk_pose);
 
         /// Utility function to compute transformation using tf tree
@@ -104,21 +105,20 @@ namespace kiss_icp_ros
 
         bool publish_odom_tf_;
         bool publish_debug_clouds_;
-
         /// Data publishers.
         ros::Publisher odom_publisher_;
         ros::Publisher frame_publisher_;
         ros::Publisher kpoints_publisher_;
         ros::Publisher map_publisher_;
         ros::Publisher traj_publisher_;
-        nav_msgs::Path path_msg_;   
+        nav_msgs::Path path_msg_;
 
-        /// KISS-ICP
-        KissICP odometry_;
+        /// GB-ICP
+        GbICP odometry_;
 
         /// Global/map coordinate frame.
         std::string odom_frame_{"camera_init"};
         std::string base_frame_{"st_body"};
     };
 
-} // namespace kiss_icp_ros
+} // namespace gb_icp_ros
