@@ -174,7 +174,7 @@ state_ikfom current_state_point;
 /*** EKF inputs and output ***/
 MeasureGroup Measures;
 esekfom::esekf<state_ikfom, 12, input_ikfom> kf;
-state_ikfom state_point, state_point_prev;
+state_ikfom state_point, last_state_point;
 // vect3 pos_lid;
 
 // 思路二
@@ -1027,6 +1027,47 @@ float checkSimilarity(const PointCloudXYZI::Ptr &current_cloud, PointCloudXYZI::
     return overlap_ratio;
 }
 
+bool isPoseStable(const state_ikfom &last_state_point, const state_ikfom &state_point,
+                  double pos_threshold = 0.01, double rot_threshold = 0.1)
+{
+    // 计算位置的差异（欧几里得距离）
+    Eigen::Vector3d pos1(last_state_point.pos(0),last_state_point.pos(1),last_state_point.pos(2));
+    Eigen::Vector3d pos2(state_point.pos(0),state_point.pos(1),state_point.pos(2));
+    Eigen::Vector3d pos_diff = pos1 - pos2;
+    double pos_distance = pos_diff.norm();
+
+    // 计算旋转的差异（四元数的角度差异）
+    geometry_msgs::Quaternion q1;
+    q1.x = state_point.rot.coeffs()[0];
+    q1.y = state_point.rot.coeffs()[1];
+    q1.z = state_point.rot.coeffs()[2];
+    q1.w = state_point.rot.coeffs()[3];
+    geometry_msgs::Quaternion q2;
+    q2.x = last_state_point.rot.coeffs()[0];
+    q2.y = last_state_point.rot.coeffs()[1];
+    q2.z = last_state_point.rot.coeffs()[2];
+    q2.w = last_state_point.rot.coeffs()[3];
+
+    // 计算四元数的相对旋转（四元数点积）
+    double dot_product = q1.x * q2.x + q1.y * q2.y + q1.z * q2.z + q1.w * q2.w;
+
+    // 归一化点积范围 [-1, 1]
+    dot_product = std::max(-1.0, std::min(1.0, dot_product));
+
+    // 计算旋转角度差（弧度）
+    double angle_difference = 2.0 * std::acos(dot_product);
+
+    // 判断位置和旋转差异是否都小于给定阈值
+    if (pos_distance < pos_threshold && std::fabs(angle_difference) < rot_threshold)
+    {
+        return true; // 位姿波动不大
+    }
+    else
+    {
+        return false; // 位姿波动较大
+    }
+}
+
 void execute()
 {
     // execute one step of state estimation and mapping
@@ -1206,6 +1247,23 @@ void execute()
     geoQuat.z = state_point.rot.coeffs()[2];
     geoQuat.w = state_point.rot.coeffs()[3];
 
+    // if (isPoseStable(last_state_point, state_point))
+    // {
+
+    //     double weight_1 = 0.5; // kf的权重
+    //     double weight_2 = 0.5; // hide_kf的权重
+    //     state_point.pos[0] = (last_state_point.pos(0) * weight_1 + state_point.pos(0) * weight_2);
+    //     state_point.pos[1] = (last_state_point.pos(1) * weight_1 + state_point.pos(1) * weight_2);
+    //     state_point.pos[2] = (last_state_point.pos(2) * weight_1 + state_point.pos(2) * weight_2);
+    //     state_point.rot.coeffs()[0] = (last_state_point.rot.coeffs()[0] * weight_1 + state_point.rot.coeffs()[0] * weight_2);
+    //     state_point.rot.coeffs()[1] = (last_state_point.rot.coeffs()[1] * weight_1 + state_point.rot.coeffs()[1] * weight_2);
+    //     state_point.rot.coeffs()[2] = (last_state_point.rot.coeffs()[2] * weight_1 + state_point.rot.coeffs()[2] * weight_2);
+    //     state_point.rot.coeffs()[3] = (last_state_point.rot.coeffs()[3] * weight_1 + state_point.rot.coeffs()[3] * weight_2);
+    //     kf.change_x(state_point);
+    // }
+
+    last_state_point = kf.get_x();
+
     // ===============================================================================================================
     // 更新地图
     /*** add the points to the voxel map ***/
@@ -1250,6 +1308,7 @@ void execute()
         icpServer->RegisterFrame(feats_down_body, msg_body_pose, ros::Time().fromSec(lidar_end_time), voxel_map);
         // icpServer->RegisterFrame(Measures .lidar,msg_body_pose,ros::Time().fromSec(lidar_end_time));
     }
+
     double weight_kf = 0.8;  // kf的权重
     double weight_icp = 0.2; // hide_kf的权重
 
@@ -1605,7 +1664,7 @@ int main(int argc, char **argv)
     nh.param<bool>("mapping/init_gravity_with_pose", init_gravity_with_pose, false);
     nh.param<float>("mapping/merge_distance_threshold", MERGE_DISTANCE_THRESHOLD, 0.03f);
     nh.param<float>("mapping/merge_bias_threshold", MERGE_BIAS_THRESHOLD, 0.8f);
-    nh.param<int>("mapping/merge_intensity_diff", MERGE_INTENSITY_DIFF, 30);
+    nh.param<int>("mapping/merge_layers", MERGE_LAYERS, 5);
     nh.param<bool>("mapping/merge_mode", merge_mode, false);
 
     // noise model params

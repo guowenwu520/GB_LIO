@@ -32,7 +32,8 @@
 extern bool merge_mode;
 extern float MERGE_DISTANCE_THRESHOLD;
 extern float MERGE_BIAS_THRESHOLD;
-extern int MERGE_INTENSITY_DIFF;
+extern int MERGE_LAYERS;
+extern int MAX_INTENSITY;
 
 // a point to plane matching structure
 typedef struct ptpl

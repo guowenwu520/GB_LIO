@@ -1,9 +1,10 @@
 #include "voxel_map_util.h"
 int merge_count = 0;
- bool merge_mode;
- float MERGE_DISTANCE_THRESHOLD;
- float MERGE_BIAS_THRESHOLD;
- int MERGE_INTENSITY_DIFF;
+bool merge_mode;
+float MERGE_DISTANCE_THRESHOLD;
+float MERGE_BIAS_THRESHOLD;
+int MERGE_LAYERS;
+int MAX_INTENSITY = 200;
 static int plane_id = 0;
 static int VOXEL_OFFSET[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
 // 计算平面与视点的夹角cos值
@@ -303,10 +304,10 @@ void OctoTree::init_octo_tree()
     // 完成构建，标记
     init_octo_ = true;
     new_points_num_ = 0;
-   
+
     for (size_t i = 0; i < temp_points_.size(); i++)
     {
-        all_points.push_back(temp_points_[i].point);
+      all_points.push_back(temp_points_[i].point);
     }
     //      temp_points_.clear();
   }
@@ -722,9 +723,11 @@ bool merge_plane(Plane *p1, Plane *p2)
   V3D abd_bias = (p1->normal - p2->normal).cwiseAbs();
   double m_distance = sqrt(abd_bias.transpose() * (p2->covariance + p1->covariance).inverse() * abd_bias);
   float m_intensity = abs(p1->intensity - p2->intensity);
-  float m_bi = (255 - max(p1->intensity, p2->intensity)) / 255.0;
-  float th = 0.05;
-  if (m_intensity < MERGE_INTENSITY_DIFF && (abd_bias[0] < MERGE_BIAS_THRESHOLD * m_bi && abd_bias[1] < MERGE_BIAS_THRESHOLD * m_bi) && m_distance < MERGE_DISTANCE_THRESHOLD * m_bi)
+  int layer_value = MAX_INTENSITY / MERGE_LAYERS;
+  int current_layer = max(p1->intensity, p2->intensity) / layer_value + 1;
+  float m_bi = (MERGE_LAYERS - current_layer) / (MERGE_LAYERS * 1.0f);
+  float merge_diff = (MERGE_LAYERS * 1.0f - 1.0f) / (current_layer * 1.0f);
+  if (m_intensity < merge_diff && (abd_bias[0] < MERGE_BIAS_THRESHOLD * m_bi && abd_bias[1] < MERGE_BIAS_THRESHOLD * m_bi) && m_distance < MERGE_DISTANCE_THRESHOLD * m_bi)
   {
     // std::cout<<"Plane1 intensity: "<<p1->intensity<<"  Plane2 intensity: "<<p2->intensity<<" bias th = "<<MERGE_BIAS_THRESHOLD*m_bi <<" distance th  = "<<MERGE_DISTANCE_THRESHOLD*m_bi<<std::endl;
     Plane *merged = new Plane;
@@ -873,8 +876,6 @@ void updateVoxelMapOMP(const std::vector<pointWithCov> &input_points,
     }
   }
 
-
-
   double t_insert_end = omp_get_wtime();
   // double t_update_start = omp_get_wtime();
   // 并行延迟更新
@@ -1007,35 +1008,34 @@ void build_single_residual(const pointWithCov &pv, const OctoTree *current_octo,
   }
 }
 
-
 void SavePointCloudToPLY(const std::vector<Eigen::Vector3d> &points, const std::string &filename)
 {
-    // 打开文件
-    std::ofstream ply_file(filename);
-    if (!ply_file.is_open())
-    {
-        std::cerr << "无法打开文件: " << filename << std::endl;
-        return;
-    }
+  // 打开文件
+  std::ofstream ply_file(filename);
+  if (!ply_file.is_open())
+  {
+    std::cerr << "无法打开文件: " << filename << std::endl;
+    return;
+  }
 
-    // 写入 PLY 文件头
-    ply_file << "ply\n";
-    ply_file << "format ascii 1.0\n";
-    ply_file << "element vertex " << points.size() << "\n";
-    ply_file << "property float x\n";
-    ply_file << "property float y\n";
-    ply_file << "property float z\n";
-    ply_file << "end_header\n";
+  // 写入 PLY 文件头
+  ply_file << "ply\n";
+  ply_file << "format ascii 1.0\n";
+  ply_file << "element vertex " << points.size() << "\n";
+  ply_file << "property float x\n";
+  ply_file << "property float y\n";
+  ply_file << "property float z\n";
+  ply_file << "end_header\n";
 
-    // 写入点数据
-    for (const auto &point : points)
-    {
-        ply_file << point.x() << " " << point.y() << " " << point.z() << "\n";
-    }
+  // 写入点数据
+  for (const auto &point : points)
+  {
+    ply_file << point.x() << " " << point.y() << " " << point.z() << "\n";
+  }
 
-    // 关闭文件
-    ply_file.close();
-    std::cout << "点云已保存到文件: " << filename << std::endl;
+  // 关闭文件
+  ply_file.close();
+  std::cout << "点云已保存到文件: " << filename << std::endl;
 }
 
 void GetUpdatePlane(const OctoTree *current_octo, const int pub_max_voxel_layer,
