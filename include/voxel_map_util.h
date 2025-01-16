@@ -24,10 +24,12 @@
 #include <pcl/point_cloud.h>
 #include <sensor_msgs/PointCloud2.h>
 
+
 #define HASH_P 116101
 #define MAX_N 10000000000
 
-
+typedef pcl::PointXYZINormal PointType;
+typedef pcl::PointCloud<PointType> PointCloudXYZI;
 
 extern bool merge_mode;
 extern float MERGE_DISTANCE_THRESHOLD;
@@ -58,6 +60,7 @@ typedef struct pointWithCov
   Eigen::Vector3d point;
   Eigen::Vector3d point_world;
   Eigen::Matrix3d cov;
+  float distance;
   float intensity;
   Eigen::Matrix3d cov_lidar;
 } pointWithCov;
@@ -73,13 +76,15 @@ typedef struct Plane
   Eigen::Matrix3d covariance;
   Eigen::Matrix<double, 6, 6> plane_cov;
   float radius = 0;
-  float intensity;
+  float distance = 0;
+  float intensity = 0;
   float min_eigen_value = 1;
   float mid_eigen_value = 1;
   float max_eigen_value = 1;
   float d = 0;
   int points_size = 0;
 
+  bool is_merge = false;
   bool is_plane = false;
   bool is_init = false;
   int id;
@@ -211,6 +216,9 @@ void CalcQuation(const Eigen::Vector3d &vec, const int axis, geometry_msgs::Quat
 void pubSinglePlane(visualization_msgs::MarkerArray &plane_pub, const std::string plane_ns, const Plane &single_plane, const float alpha, const Eigen::Vector3d rgb);
 
 void saveMarkerArrayToPCD(const visualization_msgs::MarkerArray &voxel_plane, const std::string &filename);
+void pubVocVoxelMap(const std::unordered_map<VOXEL_LOC, OctoTree *> &voxel_map,
+                    const int pub_max_voxel_layer,
+                    const ros::Publisher &plane_map_pub);
 
 void pubVoxelMap(const std::unordered_map<VOXEL_LOC, OctoTree *> &voxel_map, const int pub_max_voxel_layer, const ros::Publisher &plane_map_pub);
 
@@ -219,6 +227,8 @@ void GetPointsInVoxel(const OctoTree *current_octo, const int pub_max_voxel_laye
 void pubColoredVoxels(const std::unordered_map<VOXEL_LOC, OctoTree *> &voxel_map, const int pub_max_voxel_layer, const ros::Publisher &voxel_map_pub, double lidar_end_time);
 
 M3D calcBodyCov(Eigen::Vector3d &pb, const float range_inc, const float degree_inc);
+float calcPointDistance(const Eigen::Vector3d &p1);
 void SavePointCloudToPLY(const std::vector<Eigen::Vector3d> &points, const std::string &filename);
+void SaveIPointCloudToPLY(const PointCloudXYZI::Ptr &points, const std::string &filename);
 
 #endif

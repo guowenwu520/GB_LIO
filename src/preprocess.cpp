@@ -485,6 +485,9 @@ void Preprocess::velodyne_handler(const sensor_msgs::PointCloud2::ConstPtr &msg)
     //        if(pl_orig.points[i].intensity < 5){
     //            continue;
     //        }
+    // double distance = calcPointDistance(Eigen::Vector3d(pl_orig.points[i].x, pl_orig.points[i].y, pl_orig.points[i].z));
+    // if (distance > 60.0f)
+    //   continue;
 
     PointType added_pt;
     // cout<<"!!!!!!"<<i<<" "<<plsize<<endl;

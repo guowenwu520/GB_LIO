@@ -4,7 +4,7 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <livox_ros_driver/CustomMsg.h>
 #include <opencv2/opencv.hpp>
-
+#include "voxel_map_util.h"
 using namespace std;
 
 #define IS_VALID(a) ((abs(a) > 1e8) ? true : false)

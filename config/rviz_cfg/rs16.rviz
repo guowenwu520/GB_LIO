@@ -9,14 +9,18 @@ Panels:
         - /mapping1/surround1
         - /mapping1/currPoints1
         - /mapping1/currPoints1/Autocompute Value Bounds1
+        - /mapping1/voxels1
         - /Odometry1/imu1/Shape1
         - /Path1
+        - /VoxelMap1
+        - /VoxelMap1/Namespaces1
         - /Odometry2/Shape1
         - /Legend1
         - /Path2
         - /Odometry3
         - /PointCloud21
         - /PointCloud22
+        - /Marker2
       Splitter Ratio: 0.5747422575950623
     Tree Height: 782
   - Class: rviz/Selection
@@ -405,7 +409,7 @@ Visualization Manager:
       Color: 25; 5; 255
       Color Transformer: FlatColor
       Decay Time: 0
-      Enabled: true
+      Enabled: false
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Min Color: 0; 0; 0
@@ -420,6 +424,14 @@ Visualization Manager:
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
+      Value: false
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: /cov_marker
+      Name: Marker
+      Namespaces:
+        plane: true
+      Queue Size: 100
       Value: true
   Enabled: true
   Global Options:
@@ -449,7 +461,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/XYOrbit
-      Distance: 40.99546432495117
+      Distance: 26.932815551757812
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -465,9 +477,9 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: -0.17979665100574493
+      Pitch: 0.8747971057891846
       Target Frame: camera_init
-      Yaw: 2.8913440704345703
+      Yaw: 1.6954455375671387
     Saved: ~
 Window Geometry:
   Displays:
@@ -487,5 +499,5 @@ Window Geometry:
   Views:
     collapsed: false
   Width: 1884
-  X: 314
-  Y: 134
+  X: 461
+  Y: 32

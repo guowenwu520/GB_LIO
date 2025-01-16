@@ -14,7 +14,7 @@ preprocess:
     scan_rate: 10                # only need to be set for velodyne, unit: Hz,
     blind: 0.8
     point_filter_num: 1
-
+ 
 mapping:
     down_sample_size: 0.2
     max_iteration: 4
@@ -38,10 +38,10 @@ mapping:
     extrinsic_R: [ 1, 0, 0,
                    0, 1, 0,
                    0, 0, 1 ]
-    merge_mode: false               
-    merge_distance_threshold: 0.03
-    merge_bias_threshold: 0.4
-    merge_intensity_diff: 50             
+    merge_mode: true               
+    merge_distance_threshold: 0.04
+    merge_bias_threshold: 1.0
+    merge_layers: 10            
 
 
 noise_model:
@@ -63,7 +63,7 @@ noise_model:
 
 
 publish:
-    pub_voxel_map: false
+    pub_voxel_map: true
     publish_max_voxel_layer: 2         # only publish 0,1,2 layer's plane
     path_en:  true
     publish_limit_z: 3.0

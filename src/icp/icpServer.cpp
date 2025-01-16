@@ -111,7 +111,7 @@ namespace gb_icp_ros
         return poses_with_data;
     }
 
-    void IcpServer::RegisterFrame(const PointCloudXYZI::Ptr &input_cloud, geometry_msgs::PoseStamped &esk_pose, const ros::Time &stamp, std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map)
+    bool IcpServer::RegisterFrame(const PointCloudXYZI::Ptr &input_cloud, geometry_msgs::PoseStamped &esk_pose, const ros::Time &stamp, std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map)
     {
 
         if (esk_pose.pose.orientation.w == 0.0 &&
@@ -119,7 +119,7 @@ namespace gb_icp_ros
             esk_pose.pose.orientation.y == 0.0 &&
             esk_pose.pose.orientation.z == 0.0)
         {
-            return;
+            return false;
         }
 
         std::vector<Eigen::Vector3d> points;
@@ -129,7 +129,7 @@ namespace gb_icp_ros
 
         odometry_.setPoses(tf2::poseStampedToSE3d(esk_pose));
         // Register frame, main entry point to GB-ICP pipeline
-        const auto &[frame, keypoints] = odometry_.RegisterFrame(points, feat_map);
+        bool isSuccess = odometry_.RegisterFrame(points, feat_map);
         // double error = tf2::computePoseSimilarity(tf2::poseStampedToSE3d(esk_pose), odometry_.poses().back());
 
         // std::cout << "tol error: " << error << std::endl;
@@ -152,11 +152,10 @@ namespace gb_icp_ros
 
         // Spit the current estimated pose to ROS msgs
         PublishOdometry(gb_pose, stamp);
-
         // Publishing this clouds is a bit costly, so do it only if we are debugging
         if (publish_debug_clouds_)
         {
-            PublishClouds(frame, keypoints, stamp, tf2::poseStampedToSE3d(esk_pose), feat_map);
+            PublishClouds(points, points, stamp, tf2::poseStampedToSE3d(esk_pose), feat_map);
             if (show_map_one.load(std::memory_order_relaxed))
             {
 
@@ -173,6 +172,7 @@ namespace gb_icp_ros
                 map_publisher_.publish(*EigenToPointCloud2(gb_map, odom_header));
             }
         }
+        return isSuccess;
     }
 
     void IcpServer::PublishOdometry(const Sophus::SE3d &pose,

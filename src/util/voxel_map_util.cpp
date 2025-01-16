@@ -6,7 +6,12 @@ float MERGE_BIAS_THRESHOLD;
 int MERGE_LAYERS;
 int MAX_INTENSITY = 200;
 static int plane_id = 0;
-static int VOXEL_OFFSET[6][3] = {{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}};
+static int VOXEL_OFFSET[26][3] = {
+    {1, 0, 0},  {1, 0, 1},   {1, 0, -1},  {1, 1, 0},   {1, 1, 1},   {1, 1, -1},  {1, -1, 0},  {1, -1, 1},  {1, -1, -1},
+    {0, 1, 0},  {0, 1, 1},   {0, 1, -1},  {0, 0, 1},   {0, 0, -1},  {0, -1, 0},  {0, -1, 1},  {0, -1, -1},
+    {-1, 0, 0}, {-1, 0, 1},  {-1, 0, -1}, {-1, 1, 0},  {-1, 1, 1},  {-1, 1, -1}, {-1, -1, 0}, {-1, -1, 1}, {-1, -1, -1}
+};
+
 // 计算平面与视点的夹角cos值
 double Plane::calc_normal_viewpoint_cos(const Eigen::Vector3d &viewpoint)
 {
@@ -82,6 +87,7 @@ void Plane::update_all_parameters_from_plane(Plane *new_plane_ptr)
   is_update = new_plane_ptr->is_update;
   update_enable = new_plane_ptr->update_enable;
   last_update_points_size = new_plane_ptr->points_size;
+  is_merge = true;
 }
 
 OctoTree::OctoTree(int max_layer, int layer, std::vector<int> layer_point_size,
@@ -125,13 +131,19 @@ void OctoTree::init_plane(const std::vector<pointWithCov> &points, Plane *plane)
   plane->normal = Eigen::Vector3d::Zero();
   plane->points_size = points.size();
   plane->radius = 0;
+  // cout<<"\n  ---------------+++++++++++--------------------"<<endl;
   for (auto pv : points)
   {
     plane->covariance += pv.point * pv.point.transpose();
     plane->center += pv.point;
+    plane->distance += pv.distance;
     plane->intensity += pv.intensity;
+
+    // cout<<pv.distance <<" ";
   }
+  // cout<<"\n --------------+++++++++++---------------------"<<endl;
   plane->center = plane->center / plane->points_size;
+  plane->distance = plane->distance / plane->points_size;
   plane->intensity = plane->intensity / plane->points_size;
   plane->covariance = plane->covariance / plane->points_size -
                       plane->center * plane->center.transpose();
@@ -716,20 +728,23 @@ void buildVoxelMap(const std::vector<pointWithCov> &input_points,
 
 bool merge_plane(Plane *p1, Plane *p2)
 {
-  if (p1->intensity > 200 || p2->intensity > 200)
-  {
-    return false;
-  }
+  // if (p1->distance > 200 || p2->distance > 200)
+  // {
+  //   return false;
+  // }
+
   V3D abd_bias = (p1->normal - p2->normal).cwiseAbs();
   double m_distance = sqrt(abd_bias.transpose() * (p2->covariance + p1->covariance).inverse() * abd_bias);
   float m_intensity = abs(p1->intensity - p2->intensity);
   int layer_value = MAX_INTENSITY / MERGE_LAYERS;
   int current_layer = max(p1->intensity, p2->intensity) / layer_value + 1;
   float m_bi = (MERGE_LAYERS - current_layer) / (MERGE_LAYERS * 1.0f);
-  float merge_diff = (MERGE_LAYERS * 1.0f - 1.0f) / (current_layer * 1.0f);
-  if (m_intensity < merge_diff && (abd_bias[0] < MERGE_BIAS_THRESHOLD * m_bi && abd_bias[1] < MERGE_BIAS_THRESHOLD * m_bi) && m_distance < MERGE_DISTANCE_THRESHOLD * m_bi)
+  float merge_diff = (MERGE_LAYERS * 2.0f) / (current_layer * 1.0f);
+  // cout << "merge_diff: " << merge_diff << " m_intensity: " << m_intensity << endl;
+   std::cout << merge_diff << " Plane1 distance: " << p1->distance << "  Plane2 distance: " << p2->distance << " bias th = " << MERGE_BIAS_THRESHOLD * m_bi<< " distance th  = " << MERGE_DISTANCE_THRESHOLD* m_bi << std::endl;
+ if (m_intensity < merge_diff && (abd_bias[0] < MERGE_BIAS_THRESHOLD && abd_bias[1] < MERGE_BIAS_THRESHOLD) && m_distance < MERGE_DISTANCE_THRESHOLD)
   {
-    // std::cout<<"Plane1 intensity: "<<p1->intensity<<"  Plane2 intensity: "<<p2->intensity<<" bias th = "<<MERGE_BIAS_THRESHOLD*m_bi <<" distance th  = "<<MERGE_DISTANCE_THRESHOLD*m_bi<<std::endl;
+    // std::cout<<"Plane1 distance: "<<p1->distance<<"  Plane2 distance: "<<p2->distance<<" bias th = "<<MERGE_BIAS_THRESHOLD*m_bi <<" distance th  = "<<MERGE_DISTANCE_THRESHOLD*m_bi<<std::endl;
     Plane *merged = new Plane;
     int total_points = p1->points_size + p2->points_size;
 
@@ -754,7 +769,14 @@ bool merge_plane(Plane *p1, Plane *p2)
     // }
 
     // merged->normal.normalize();
-    merged->covariance = (p1->covariance * p1->points_size + p2->covariance * p2->points_size) / total_points;
+    // merged->covariance = (p1->covariance * p1->points_size + p2->covariance * p2->points_size) / total_points;
+     Eigen::Vector3d offset1 = p1->center - merged->center;
+    Eigen::Vector3d offset2 = p2->center - merged->center;
+
+    // 合并协方差矩阵
+    merged->covariance = (p1->points_size * (p1->covariance + offset1 * offset1.transpose()) +
+                p2->points_size * (p2->covariance + offset2 * offset2.transpose()))/ total_points;
+    // merged->covariance = p1->covariance  + p2->covariance ;
 
     merged->min_eigen_value = (p1->min_eigen_value * p1->points_size + p2->min_eigen_value * p2->points_size) / total_points;
     merged->mid_eigen_value = (p1->mid_eigen_value * p1->points_size + p2->mid_eigen_value * p2->points_size) / total_points;
@@ -789,7 +811,7 @@ bool merge_plane(Plane *p1, Plane *p2)
 // 合并voxel map
 void merge_voxel_map(std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map, VOXEL_LOC &position)
 {
-  for (int i = 0; i < 6; i++)
+  for (int i = 0; i < 26; i++)
   {
     VOXEL_LOC near_position((int64_t)VOXEL_OFFSET[i][0] + position.x, (int64_t)VOXEL_OFFSET[i][1] + position.y,
                             (int64_t)VOXEL_OFFSET[i][2] + position.z);
@@ -1036,6 +1058,44 @@ void SavePointCloudToPLY(const std::vector<Eigen::Vector3d> &points, const std::
   // 关闭文件
   ply_file.close();
   std::cout << "点云已保存到文件: " << filename << std::endl;
+}
+
+void SaveIPointCloudToPLY(const PointCloudXYZI::Ptr &points, const std::string &filename)
+{
+  // 打开文件
+  std::ofstream ply_file(filename);
+  if (!ply_file.is_open())
+  {
+    std::cerr << "无法打开文件: " << filename << std::endl;
+    return;
+  }
+
+  // 写入 PLY 文件头
+  ply_file << "ply\n";
+  ply_file << "format ascii 1.0\n";
+  ply_file << "element vertex " << points->size() << "\n";
+  ply_file << "property float x\n";
+  ply_file << "property float y\n";
+  ply_file << "property float z\n";
+  ply_file << "property uchar red\n";
+  ply_file << "property uchar green\n";
+  ply_file << "property uchar blue\n";
+  ply_file << "end_header\n";
+  // 写入点数据
+  for (const auto &point : *points)
+  {
+    Eigen::Vector3d vect1(point.x, point.y, point.z);
+    ply_file << point.x << " " << point.y << " " << point.z << " " << int(calcPointDistance(vect1) * 10) % 255 << " " << int(calcPointDistance(vect1) * 10) % 255 << " " << int(calcPointDistance(vect1) * 10) % 255 << "\n";
+  }
+
+  // 关闭文件
+  ply_file.close();
+  std::cout << "点云已保存到文件: " << filename << std::endl;
+}
+
+float calcPointDistance(const Eigen::Vector3d &p1)
+{
+  return sqrt(p1[0] * p1[0] + p1[1] * p1[1]);
 }
 
 void GetUpdatePlane(const OctoTree *current_octo, const int pub_max_voxel_layer,
@@ -1555,6 +1615,94 @@ void pubVoxelMap(const std::unordered_map<VOXEL_LOC, OctoTree *> &voxel_map,
   }
   // saveMarkerArrayToPCD(voxel_plane, "/home/guowenwu/workspace/Indoor_SLAM/alpha_ws/voxel_plane.pcd");
   plane_map_pub.publish(voxel_plane);
+  loop.sleep();
+}
+
+void pubVocVoxelMap(const std::unordered_map<VOXEL_LOC, OctoTree *> &voxel_map,
+                    const int pub_max_voxel_layer,
+                    const ros::Publisher &plane_map_pub)
+{
+  uint32_t shape = visualization_msgs::Marker::SPHERE;
+
+  // visualization_msgs::MarkerArray voxel_plane;
+  // voxel_plane.markers.reserve(1000000);
+  visualization_msgs::Marker marker;
+  ros::Rate loop(500);
+  std::vector<Plane> pub_plane_list;
+  for (auto iter = voxel_map.begin(); iter != voxel_map.end(); iter++)
+  {
+    GetUpdatePlane(iter->second, pub_max_voxel_layer, pub_plane_list);
+  }
+  for (size_t i = 0; i < pub_plane_list.size(); i++)
+  {
+    double max_trace = 0.25;
+    double pow_num = 0.2;
+
+    marker.header.frame_id = "camera_init";
+    marker.header.stamp = ros::Time();
+    marker.ns = "plane";
+    marker.id = pub_plane_list[i].id;
+    marker.type = shape;
+    marker.action = visualization_msgs::Marker::ADD;
+    Eigen::Matrix3d plane_cov = pub_plane_list[i].covariance;
+    double trace = plane_cov.sum();
+    if (trace >= max_trace)
+    {
+      trace = max_trace;
+    }
+    trace = trace * (1.0 / max_trace);
+    trace = pow(trace, pow_num);
+    uint8_t r, g, b;
+    mapJet(trace, 0, 1, r, g, b);
+    // if (!pub_plane_list[i].is_merge)
+    // {
+      // 设置 Marker 的颜色 (RGBA)
+      marker.color.r = r / 256.0;
+      marker.color.g = g / 256.0; // 绿色
+      marker.color.b = b / 256.0;
+      marker.color.a = 1.0; // 不透明
+    // }
+    // else
+    // {
+    //   marker.color.r = 1.0;
+    //   marker.color.g = 0.0; // 绿色
+    //   marker.color.b = 0.0;
+    //   marker.color.a = 1.0; // 不透明
+    // }
+
+    Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solver(plane_cov);
+    Eigen::Vector3d eigenvalues = solver.eigenvalues();   // 特征值
+    Eigen::Matrix3d eigenvectors = solver.eigenvectors(); // 特征向量
+
+    // 设置球体方向（由特征向量定义）
+    // Eigen::Quaterniond orientation(eigenvectors); // 将旋转矩阵转为四元数
+    Eigen::Vector3d nx1 = pub_plane_list[i].normal.normalized();
+    //     Eigen::Vector3d nx1 = normal.normalized();
+    Eigen::Vector3d nx2{1.0, 0, 0};
+    // // 计算T__nx1__o__nx2
+    Eigen::Quaterniond orientation = Eigen::Quaterniond::FromTwoVectors(nx2, nx1);
+    marker.pose.orientation.x = orientation.x();
+    marker.pose.orientation.y = orientation.y();
+    marker.pose.orientation.z = orientation.z();
+    marker.pose.orientation.w = orientation.w();
+    // 设置球体大小（使用特征值）
+    float scale_factor = sqrt(2*5.991); // 调整比例
+    marker.scale.x = scale_factor * std::sqrt(eigenvalues[0]);
+    marker.scale.y = scale_factor * std::sqrt(eigenvalues[1]);
+    marker.scale.z = scale_factor * std::sqrt(eigenvalues[2]);
+
+    marker.pose.position.x = pub_plane_list[i].center.x(); // x 坐标按顺序递增
+    marker.pose.position.y = pub_plane_list[i].center.y(); // y 坐标为正弦曲线
+    marker.pose.position.z = pub_plane_list[i].center.z(); // z 坐标固定
+    // marker.points.push_back(p);
+    //  voxel_plane.markers.push_back(marker);          // 添加到点集合中
+
+    // cout << marker.pose.position.x << " x " << marker.pose.position.y << " y " << marker.pose.position.z << " z " << endl;
+    // cout << marker.scale.x << " s " << marker.scale.y << " s " << marker.scale.z << endl;
+    plane_map_pub.publish(marker);
+  }
+  // saveMarkerArrayToPCD(voxel_plane, "/home/guowenwu/workspace/Indoor_SLAM/alpha_ws/voxel_plane.pcd");
+  // plane_map_pub.publish(marker);
   loop.sleep();
 }
 

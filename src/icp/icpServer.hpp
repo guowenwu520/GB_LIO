@@ -72,7 +72,7 @@ namespace gb_icp_ros
         /// OdometryServer constructor
         IcpServer(ros::NodeHandle &nh);
         /// Register new frame
-        void RegisterFrame(const PointCloudXYZI::Ptr &input_cloud, geometry_msgs::PoseStamped &esk_pose, const ros::Time &stamp, std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map);
+        bool RegisterFrame(const PointCloudXYZI::Ptr &input_cloud, geometry_msgs::PoseStamped &esk_pose, const ros::Time &stamp, std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map);
         std::vector<PoseData> Poses();
 
     private:

@@ -32,7 +32,7 @@ double voxel_size_ = 1.0;
 double max_range_ = 100.0;
 double min_range_ = 5.0;
 int max_points_per_voxel_ = 20;
-
+bool is_match_success_ = false;
 double convergence_criterion = 0.0001;
 int max_num_iterations = 500;
 
@@ -184,6 +184,7 @@ Sophus::SE3d GbICP::PoseEstimate(const std::vector<Eigen::Vector3d> &frame,
         const auto &[src, tgt] = GetCorrespondences(source, max_correspondence_distance, feat_map);
         if (j >= max_num_iterations)
         {
+            is_match_success_ = false;
             SavePointCloudToPLY(source, "/home/guowenwu/workspace/Indoor_SLAM/gb_ws/output_source_no.ply");
             SavePointCloudToPLY(src, "/home/guowenwu/workspace/Indoor_SLAM/gb_ws/output_src_no.ply");
             SavePointCloudToPLY(tgt, "/home/guowenwu/workspace/Indoor_SLAM/gb_ws/output_tgt_no.ply");
@@ -286,7 +287,7 @@ std::vector<Eigen::Vector3d> GbICP::Preprocess(const std::vector<Eigen::Vector3d
     return inliers;
 }
 
-Vector3dVectorTuple GbICP::RegisterFrame(const std::vector<Eigen::Vector3d> &frame, std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map)
+bool GbICP::RegisterFrame(const std::vector<Eigen::Vector3d> &frame, std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map)
 {
     const auto &cropped_frame = Preprocess(frame, max_range_, min_range_);
     // const double sigma = GetAdaptiveThreshold();
@@ -296,7 +297,7 @@ Vector3dVectorTuple GbICP::RegisterFrame(const std::vector<Eigen::Vector3d> &fra
     // const auto last_pose = !poses_.empty() ? poses_.back() : Sophus::SE3d();
     // const auto initial_guess = last_pose * prediction;
     const auto initial_guess = !poses_.empty() ? poses_.back() : Sophus::SE3d();
-
+    is_match_success_ = true;
     // Run icp
     const Sophus::SE3d new_pose = PoseEstimate(cropped_frame, //
                                                feat_map,      //
@@ -315,7 +316,7 @@ Vector3dVectorTuple GbICP::RegisterFrame(const std::vector<Eigen::Vector3d> &fra
     // local_map_.Update(frame, last_pose);
     // std::cout<<" point size "<<local_map_.Pointcloud().size()<<std::endl;
     poses_.push_back(new_pose);
-    return {frame, cropped_frame};
+    return is_match_success_;
 }
 
 double GbICP::GetAdaptiveThreshold()

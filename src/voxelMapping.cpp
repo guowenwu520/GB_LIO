@@ -78,6 +78,9 @@ int kdtree_size_st = 0, kdtree_size_end = 0, add_point_size = 0, kdtree_delete_c
 bool time_sync_en = false, extrinsic_est_en = true, path_en = true, encoder_fusion_en = true;
 double lidar_time_offset = 0.0;
 double encoder_zeropoint_offset_deg = 0.0;
+double mean_division_error_points = 0;
+double max_error_points = 5.0;
+double max_distance = 50.0;
 /**************************/
 
 float res_last[100000] = {0.0};
@@ -99,6 +102,8 @@ double total_distance = 0, lidar_end_time = 0, first_lidar_time = 0.0, lidar_end
 int effct_feat_num = 0, time_log_counter = 0, scan_count = 0, publish_count = 0;
 int iterCount = 0, feats_down_size = 0, NUM_MAX_ITERATIONS = 0, laserCloudValidNum = 0, pcd_index = 0;
 int scan_index = 0;
+double total_time_ = 0;
+int total_num_ = 0;
 bool point_selected_surf[100000] = {0};
 bool lidar_pushed, flg_first_scan = true, flg_exit = false, flg_EKF_inited;
 bool scan_pub_en = false, dense_pub_en = false, scan_body_pub_en = false, icp_en = true;
@@ -125,6 +130,7 @@ deque<sensor_msgs::Imu::ConstPtr> imu_buffer;
 PointCloudXYZI::Ptr featsFromMap(new PointCloudXYZI());
 PointCloudXYZI::Ptr feats_undistort(new PointCloudXYZI());
 PointCloudXYZI::Ptr feats_down_body(new PointCloudXYZI());
+PointCloudXYZI::Ptr last_feats_down_body(new PointCloudXYZI()); // 记录上一帧的点云
 PointCloudXYZI::Ptr feats_down_world(new PointCloudXYZI());
 PointCloudXYZI::Ptr normvec(new PointCloudXYZI(100000, 1));
 // PointCloudXYZI::Ptr laserCloudOri(new PointCloudXYZI(100000, 1));
@@ -160,6 +166,19 @@ int max_points_size = 50;
 double sigma_num = 2.0;
 double max_voxel_size = 1.0;
 std::vector<int> layer_size;
+
+// record point usage
+double mean_effect_points = 0;
+double mean_ds_points = 0;
+double mean_raw_points = 0;
+
+// record time
+double undistort_time_mean = 0;
+double down_sample_time_mean = 0;
+double calc_cov_time_mean = 0;
+double scan_match_time_mean = 0;
+double ekf_solve_time_mean = 0;
+double map_update_time_mean = 0;
 
 double ranging_cov = 0.0;
 double angle_cov = 0.0;
@@ -992,6 +1011,7 @@ ros::Publisher pubExtrinsic;
 ros::Publisher pubKeyPath;
 ros::Publisher pubPath;
 ros::Publisher voxel_map_pub;
+ros::Publisher marker_cov_pub;
 ros::Publisher stats_pub;
 
 // for Plane Map
@@ -1001,7 +1021,7 @@ bool init_map = false;
 double sum_optimize_time = 0, sum_update_time = 0;
 std::fstream stat_latency("/tmp/latency.csv", std::ios::out);
 
-float checkSimilarity(const PointCloudXYZI::Ptr &current_cloud, PointCloudXYZI::Ptr &last_cloud)
+double calculateErrorPoint(const PointCloudXYZI::Ptr &current_cloud, PointCloudXYZI::Ptr &last_cloud)
 {
     if (last_cloud->size() == 0 || current_cloud->size() == 0)
         return 1.0f;
@@ -1024,15 +1044,44 @@ float checkSimilarity(const PointCloudXYZI::Ptr &current_cloud, PointCloudXYZI::
 
     // 计算重叠比例
     float overlap_ratio = static_cast<float>(overlap_count) / (current_cloud->size() * 1.0f);
-    return overlap_ratio;
+    return 1.0f - overlap_ratio;
+}
+
+void fusion_status_update(const PointCloudXYZI::Ptr &current_cloud, PointCloudXYZI::Ptr &last_cloud, bool is_success)
+{
+    if (!is_success)
+    {
+        return;
+    }
+    mean_division_error_points = calculateErrorPoint(feats_down_body, last_feats_down_body);
+
+    double weight_kf = max_error_points - min(mean_division_error_points, max_error_points);
+    double weight_icp = min(mean_division_error_points, max_error_points);
+    Sophus::SE3d icp_state_point = icpServer->Poses().back().pose;
+
+    Eigen::Vector3d translation = icp_state_point.translation();
+    Eigen::Quaterniond quaternion(icp_state_point.unit_quaternion());
+
+    // state_ikfom avg_st;
+
+    state_point.pos[0] = (translation.x() * weight_icp + state_point.pos(0) * weight_kf) / max_error_points;
+    state_point.pos[1] = (translation.y() * weight_icp + state_point.pos(1) * weight_kf) / max_error_points;
+    state_point.pos[2] = (translation.z() * weight_icp + state_point.pos(2) * weight_kf) / max_error_points;
+    state_point.rot.coeffs()[0] = (quaternion.x() * weight_icp + geoQuat.x * weight_kf) / max_error_points;
+    state_point.rot.coeffs()[1] = (quaternion.y() * weight_icp + geoQuat.y * weight_kf) / max_error_points;
+    state_point.rot.coeffs()[2] = (quaternion.z() * weight_icp + geoQuat.z * weight_kf) / max_error_points;
+    state_point.rot.coeffs()[3] = (quaternion.w() * weight_icp + geoQuat.w * weight_kf) / max_error_points;
+
+    kf.change_x(state_point);
+    pcl::copyPointCloud(*feats_down_body, *last_feats_down_body);
 }
 
 bool isPoseStable(const state_ikfom &last_state_point, const state_ikfom &state_point,
                   double pos_threshold = 0.01, double rot_threshold = 0.1)
 {
     // 计算位置的差异（欧几里得距离）
-    Eigen::Vector3d pos1(last_state_point.pos(0),last_state_point.pos(1),last_state_point.pos(2));
-    Eigen::Vector3d pos2(state_point.pos(0),state_point.pos(1),state_point.pos(2));
+    Eigen::Vector3d pos1(last_state_point.pos(0), last_state_point.pos(1), last_state_point.pos(2));
+    Eigen::Vector3d pos2(state_point.pos(0), state_point.pos(1), state_point.pos(2));
     Eigen::Vector3d pos_diff = pos1 - pos2;
     double pos_distance = pos_diff.norm();
 
@@ -1080,6 +1129,8 @@ void execute()
         return;
     }
 
+    double t_total_start = omp_get_wtime();
+
     double t_optimize_start = omp_get_wtime();
     p_imu->Process(Measures, kf, feats_undistort);
     state_point = kf.get_x();
@@ -1121,8 +1172,9 @@ void execute()
             M3D cov_world = transformLiDARCovToWorld(point_this, kf, cov_lidar);
 
             pv.cov = cov_world;
-            pv_list.push_back(pv);
+            pv.distance = calcPointDistance(pv.point);
             pv.intensity = world_lidar->points[i].intensity;
+            pv_list.push_back(pv);
             // Eigen::Vector3d sigma_pv = pv.cov.diagonal();
             // sigma_pv[0] = sqrt(sigma_pv[0]);
             // sigma_pv[1] = sqrt(sigma_pv[1]);
@@ -1140,6 +1192,7 @@ void execute()
         {
             // current_state_point = kf.get_x();
             pubVoxelMap(voxel_map, publish_max_voxel_layer, voxel_map_pub);
+            pubVocVoxelMap(voxel_map, publish_max_voxel_layer, marker_cov_pub);
             publish_frame_world(pubLaserCloudFull);
             publish_frame_body(pubLaserCloudFull_body);
         }
@@ -1153,58 +1206,6 @@ void execute()
     downSizeFilterSurf.filter(*feats_down_body);
     // std::cout << "feats size:" << feats_undistort->size()
     //                   << ", down size:" << feats_down_body->size() << std::endl;
-    // 如果首次下采样点数量还是太多(一般是大场景,不需要这么多点) 那么就adaptive 再次下采样
-    if (adaptive_voxelization)
-    {
-        size_t feats_down_size_first = feats_down_body->points.size();
-        // 倒序查找LUT确定下采样的粒度
-        // XXX 需要保证LUT是升序的!
-        int search_idx;
-        bool is_found = false;
-        if (feats_down_size_first < adaptive_threshold[0])
-        {
-            // LUT的第一个值是特殊保护值,用于退化环境升采样
-            // 如果点数太少了,少于保护值, 那么反倒进行升采样, 防止退化
-            search_idx = 0;
-            is_found = true;
-        }
-        else
-        {
-            for (search_idx = adaptive_threshold.size() - 1; search_idx > 0; search_idx--)
-            {
-                // std::printf("\n %ld %ld %f %f\n",
-                //            search_idx, adaptive_threshold.size(), adaptive_threshold[search_idx], adaptive_multiple_factor[search_idx]);
-                // 首次大于阈值, 就用对应的下采样粒度
-                if (feats_down_size_first > adaptive_threshold[search_idx])
-                {
-                    is_found = true;
-                    break;
-                }
-            }
-        }
-        // 如果查找到LUT中的某个阈值, 就用对应的粒度下采样
-        if (is_found)
-        {
-            float leaf_size_scaled = filter_size_surf_min * adaptive_multiple_factor[search_idx];
-            downSizeFilterAdaptive.setLeafSize(leaf_size_scaled, leaf_size_scaled, leaf_size_scaled);
-            if (leaf_size_scaled < filter_size_surf_min)
-            {
-                // 升采样 用原始点云
-                downSizeFilterAdaptive.setInputCloud(feats_undistort);
-            }
-            else
-            {
-                downSizeFilterAdaptive.setInputCloud(feats_down_body);
-            }
-            downSizeFilterAdaptive.filter(*feats_down_body);
-            std::printf("ADV: RAW: %10ld | First:  %10ld | Adap: %10ld, %5fpts, %5fm\n",
-                        feats_undistort->size(),
-                        feats_down_size_first,
-                        feats_down_body->size(),
-                        adaptive_threshold[search_idx],
-                        leaf_size_scaled);
-        }
-    }
 
     sort(feats_down_body->points.begin(), feats_down_body->points.end(), time_list);
 
@@ -1288,6 +1289,7 @@ void execute()
         // 最终updateVoxelMap需要用的是world系的point
         pv.cov = cov_world;
         pv.point << world_lidar->points[i].x, world_lidar->points[i].y, world_lidar->points[i].z;
+        pv.distance = calcPointDistance(pv.point);
         pv.intensity = world_lidar->points[i].intensity;
         pv_list.push_back(pv);
     }
@@ -1302,33 +1304,15 @@ void execute()
     sum_update_time += t_update_end - t_update_start;
     scan_index++;
 
+    // SaveIPointCloudToPLY(feats_undistort, "/home/guowenwu/workspace/Indoor_SLAM/gb_ws/output_cloud_addI_rgb.ply");
     if (icp_en)
     {
         set_posestamp(msg_body_pose);
-        icpServer->RegisterFrame(feats_down_body, msg_body_pose, ros::Time().fromSec(lidar_end_time), voxel_map);
-        // icpServer->RegisterFrame(Measures .lidar,msg_body_pose,ros::Time().fromSec(lidar_end_time));
+        bool is_success = icpServer->RegisterFrame(feats_down_body, msg_body_pose, ros::Time().fromSec(lidar_end_time), voxel_map);
+        fusion_status_update(feats_down_body, last_feats_down_body, is_success);
     }
 
-    double weight_kf = 0.8;  // kf的权重
-    double weight_icp = 0.2; // hide_kf的权重
-
-    Sophus::SE3d icp_state_point = icpServer->Poses().back().pose;
-
-    Eigen::Vector3d translation = icp_state_point.translation();
-    Eigen::Quaterniond quaternion(icp_state_point.unit_quaternion());
-
-    // state_ikfom avg_st;
-
-    state_point.pos[0] = (translation.x() * weight_icp + state_point.pos(0) * weight_kf);
-    state_point.pos[1] = (translation.y() * weight_icp + state_point.pos(1) * weight_kf);
-    state_point.pos[2] = (translation.z() * weight_icp + state_point.pos(2) * weight_kf);
-    state_point.rot.coeffs()[0] = (quaternion.x() * weight_icp + geoQuat.x * weight_kf);
-    state_point.rot.coeffs()[1] = (quaternion.y() * weight_icp + geoQuat.y * weight_kf);
-    state_point.rot.coeffs()[2] = (quaternion.z() * weight_icp + geoQuat.z * weight_kf);
-    state_point.rot.coeffs()[3] = (quaternion.w() * weight_icp + geoQuat.w * weight_kf);
-
-    kf.change_x(state_point);
-
+    double t_total_end = omp_get_wtime();
     // ===============================================================================================================
     // 可视化相关
     /******* Publish odometry *******/
@@ -1350,11 +1334,19 @@ void execute()
     if (publish_voxel_map && pubLaserCloudMap.getNumSubscribers() > 0)
     {
         pubColoredVoxels(voxel_map, publish_max_voxel_layer, pubLaserCloudMap, lidar_end_time);
+        pubVocVoxelMap(voxel_map, publish_max_voxel_layer, marker_cov_pub);
+    }
+
+    if (publish_voxel_map && marker_cov_pub.getNumSubscribers() > 0)
+    {
+        pubVocVoxelMap(voxel_map, publish_max_voxel_layer, marker_cov_pub);
     }
     if (publish_voxel_map && voxel_map_pub.getNumSubscribers() > 0)
     {
         pubVoxelMap(voxel_map, publish_max_voxel_layer, voxel_map_pub);
+        // pubVocVoxelMap(voxel_map, publish_max_voxel_layer, marker_cov_pub);
     }
+    // pubVocVoxelMap(voxel_map, publish_max_voxel_layer, marker_cov_pub);
     double t_vis_end = omp_get_wtime();
     // nav_msgs::Odometry stat_msg;
     // stat_msg.header = odomAftMapped.header;
@@ -1371,176 +1363,66 @@ void execute()
     //             kf.get_x().grav.get_vect().x(), kf.get_x().grav.get_vect().y(), kf.get_x().grav.get_vect().z()
     // );
 
-    // std::printf("Mean Latency: %.3fs |  Mean Topt: %.5fs   Tu: %.5fs   | Cur Topt: %.5fs   Tu: %.5fs   Tvis: %.5fs\n",
+    // mean_raw_points = mean_raw_points * (scan_index - 1) / scan_index +
+    //                   (double) (feats_undistort->size()) / scan_index;
+    // mean_ds_points = mean_ds_points * (scan_index - 1) / scan_index +
+    //                  (double) (feats_down_body->size()) / scan_index;
+    // mean_effect_points = mean_effect_points * (scan_index - 1) / scan_index +
+    //                      (double) effct_feat_num / scan_index;
+
+    // undistort_time_mean = undistort_time_mean * (scan_index - 1) / scan_index +
+    //                       (undistort_time) / scan_index;
+    // down_sample_time_mean =
+    //         down_sample_time_mean * (scan_index - 1) / scan_index +
+    //         (t_downsample) / scan_index;
+    // calc_cov_time_mean = calc_cov_time_mean * (scan_index - 1) / scan_index +
+    //                      (calc_point_cov_time) / scan_index;
+    // scan_match_time_mean =
+    //         scan_match_time_mean * (scan_index - 1) / scan_index +
+    //         (scan_match_time) / scan_index;
+    // ekf_solve_time_mean = ekf_solve_time_mean * (scan_index - 1) / scan_index +
+    //                       (solve_time) / scan_index;
+    // map_update_time_mean =
+    //         map_update_time_mean * (scan_index - 1) / scan_index +
+    //         (map_incremental_time) / scan_index;
+
+    // aver_time_consu = aver_time_consu * (scan_index - 1) / scan_index +
+    //                   (total_time) / scan_index;
+
+    // time_log_counter++;
+    // cout << "pos:" << state.pos_end.transpose() << endl;
+    // cout << "[ Time ]: "
+    //      << "average undistort: " << undistort_time_mean << std::endl;
+    // cout << "[ Time ]: "
+    //      << "average down sample: " << down_sample_time_mean << std::endl;
+    // cout << "[ Time ]: "
+    //      << "average calc cov: " << calc_cov_time_mean << std::endl;
+    // cout << "[ Time ]: "
+    //      << "average scan match: " << scan_match_time_mean << std::endl;
+    // cout << "[ Time ]: "
+    //      << "average solve: " << ekf_solve_time_mean << std::endl;
+    // cout << "[ Time ]: "
+    //      << "average map incremental: " << map_update_time_mean << std::endl;
+    // cout << "[ Time ]: "
+    //      << " average total " << aver_time_consu << endl;
+    // cout << "--------------------------------------------" << endl;
+
+    // std::printf("Mean Latency: %.3fs |  Mean Topt: %.5fs   Tu: %.5fs   | Cur Topt: %.5fs   地图更新时间 : %.5fs   可视化时间: %.5fs\n",
     //             (sum_optimize_time + sum_update_time) / scan_index + (t_vis_end - t_vis_start),
     //             sum_optimize_time / scan_index, sum_update_time / scan_index,
     //             t_optimize_end - t_optimize_start,
     //             t_update_end - t_update_start,
     //             t_vis_end - t_vis_start);
+
+    total_time_ += t_total_end - t_total_start;
+    // total_num_ += feats_undistort->size();
+    std::printf("总时间 %.5f\n", total_time_);
     stat_latency
         << lidar_end_time << ", "
         << t_optimize_end - t_optimize_start << ", "
         << t_update_end - t_update_start << ", "
         << t_vis_end - t_vis_start << ", "
         << std::endl;
-}
-
-void hide_execute()
-{
-    // execute one step of state estimation and mapping
-    // std::cout << "build executeT" << std::endl;
-    if (hide_flg_first_scan)
-    {
-        first_lidar_time = Measures.lidar_beg_time;
-        hide_p_imu->first_lidar_time = first_lidar_time;
-        hide_flg_first_scan = false;
-        // continue;
-        return;
-    }
-
-    double t_optimize_start = omp_get_wtime();
-    hide_p_imu->Process(Measures, hide_kf, hide_feats_undistort);
-    hide_state_point = hide_kf.get_x();
-    // pos_lid = hide_state_point.pos + hide_state_point.rot * hide_state_point.offset_T_L_I;
-
-    // std::cout << "build hide_feats_undistort siza" << hide_feats_undistort->points.size()<<std::endl;
-    if (hide_feats_undistort->empty() || (hide_feats_undistort == NULL))
-    {
-        ROS_WARN("No point, skip this scan!\n");
-        // continue;
-        return;
-    }
-
-    flg_EKF_inited = (Measures.lidar_beg_time - first_lidar_time) < INIT_TIME ? false : true;
-    // ===============================================================================================================
-    // 第一帧 如果ekf初始化了 就初始化voxel地图
-    if (flg_EKF_inited && !init_map)
-    {
-        PointCloudXYZI::Ptr world_lidar(new PointCloudXYZI);
-        transformLidar(hide_state_point, hide_feats_undistort, world_lidar);
-        std::vector<pointWithCov> pv_list;
-
-        // std::cout << hide_kf.get_P() << std::endl;
-        // 计算第一帧所有点的covariance 并用于构建初始地图
-        for (size_t i = 0; i < world_lidar->size(); i++)
-        {
-            pointWithCov pv;
-            pv.point << world_lidar->points[i].x, world_lidar->points[i].y,
-                world_lidar->points[i].z;
-            V3D point_this(hide_feats_undistort->points[i].x,
-                           hide_feats_undistort->points[i].y,
-                           hide_feats_undistort->points[i].z);
-            // if z=0, error will occur in calcBodyCov. To be solved
-            if (point_this[2] == 0)
-            {
-                point_this[2] = 0.001;
-            }
-            M3D cov_lidar = calcBodyCov(point_this, ranging_cov, angle_cov);
-            // 转换到world系
-            M3D cov_world = transformLiDARCovToWorld(point_this, hide_kf, cov_lidar);
-
-            pv.cov = cov_world;
-            pv_list.push_back(pv);
-            pv.intensity = world_lidar->points[i].intensity;
-            // Eigen::Vector3d sigma_pv = pv.cov.diagonal();
-            // sigma_pv[0] = sqrt(sigma_pv[0]);
-            // sigma_pv[1] = sqrt(sigma_pv[1]);
-            // sigma_pv[2] = sqrt(sigma_pv[2]);
-        }
-
-        // 当前state point 赋值
-        current_state_point = hide_kf.get_x();
-        buildVoxelMap(pv_list, max_voxel_size, max_layer, layer_size,
-                      max_points_size, max_points_size, min_eigen_value,
-                      hide_voxel_map);
-        std::cout << "build voxel map" << std::endl;
-        init_map = true;
-        // continue;
-        return;
-    }
-
-    /*** downsample the feature points in a scan ***/
-    downSizeFilterSurf.setInputCloud(hide_feats_undistort);
-    downSizeFilterSurf.filter(*hide_feats_down_body);
-    // std::cout << "feats size:" << hide_feats_undistort->size()
-    //                   << ", down size:" << hide_feats_down_body->size() << std::endl;
-    // 如果首次下采样点数量还是太多(一般是大场景,不需要这么多点) 那么就adaptive 再次下采样
-
-    sort(hide_feats_down_body->points.begin(), hide_feats_down_body->points.end(), time_list);
-
-    feats_down_size = hide_feats_down_body->points.size();
-    // 由于点云的body var是一直不变的 因此提前计算 在迭代时可以复用
-    var_down_body.clear();
-    for (auto &pt : hide_feats_down_body->points)
-    {
-        V3D point_this(pt.x, pt.y, pt.z);
-        var_down_body.push_back(calcBodyCov(point_this, ranging_cov, angle_cov));
-    }
-
-    // std::cout << "build hide_feats_down_body siza" << feats_down_size<<std::endl;
-    /*** ICP and iterated Kalman filter update ***/
-    if (feats_down_size < 5)
-    {
-        ROS_WARN("Too few points (<5 points), skip this scan!\n");
-        // continue;
-        return;
-    }
-    // ===============================================================================================================
-    // 开始迭代滤波
-    /*** iterated state estimation ***/
-    double solve_H_time = 0;
-    hide_kf.update_iterated_dyn_share_diagonal();
-    //            hide_kf.update_iterated_dyn_share_modified(LASER_POINT_COV, solve_H_time);
-    double t_optimize_end = omp_get_wtime();
-    sum_optimize_time += t_optimize_end - t_optimize_start;
-
-    hide_state_point = hide_kf.get_x();
-
-    // pos_lid = hide_state_point.pos + hide_state_point.rot * hide_state_point.offset_T_L_I;
-    hide_geoQuat.x = hide_state_point.rot.coeffs()[0];
-    hide_geoQuat.y = hide_state_point.rot.coeffs()[1];
-    hide_geoQuat.z = hide_state_point.rot.coeffs()[2];
-    hide_geoQuat.w = hide_state_point.rot.coeffs()[3];
-    // ===============================================================================================================
-    // 更新地图
-    /*** add the points to the voxel map ***/
-    double t_update_start = omp_get_wtime();
-    // 用最新的状态估计将点及点的covariance转换到world系
-    std::vector<pointWithCov> pv_list;
-    PointCloudXYZI::Ptr world_lidar(new PointCloudXYZI);
-    transformLidar(hide_state_point, hide_feats_down_body, world_lidar);
-    for (size_t i = 0; i < hide_feats_down_body->size(); i++)
-    {
-        // 保存body系和world系坐标
-        pointWithCov pv;
-        pv.point << hide_feats_down_body->points[i].x, hide_feats_down_body->points[i].y, hide_feats_down_body->points[i].z;
-        // 计算lidar点的cov
-        // FIXME 这里错误的使用世界系的点来calcBodyCov时 反倒在某些seq（比如hilti2022的03 15）上效果更好 需要考虑是不是init_plane时使用更大的cov更好
-        // 注意这个在每次迭代时是存在重复计算的 因为lidar系的点云covariance是不变的
-        // M3D cov_lidar = calcBodyCov(pv.point, ranging_cov, angle_cov);
-        M3D cov_lidar = var_down_body[i];
-        // 将body系的var转换到world系
-        M3D cov_world = transformLiDARCovToWorld(pv.point, hide_kf, cov_lidar);
-
-        // 最终updateVoxelMap需要用的是world系的point
-        pv.cov = cov_world;
-        pv.point << world_lidar->points[i].x, world_lidar->points[i].y, world_lidar->points[i].z;
-        pv.intensity = world_lidar->points[i].intensity;
-        pv_list.push_back(pv);
-    }
-
-    // 当前state point 赋值
-    current_state_point = hide_kf.get_x();
-    std::sort(pv_list.begin(), pv_list.end(), var_contrast);
-    updateVoxelMapOMP(pv_list, max_voxel_size, max_layer, layer_size,
-                      max_points_size, max_points_size, min_eigen_value,
-                      hide_voxel_map);
-    double t_update_end = omp_get_wtime();
-    sum_update_time += t_update_end - t_update_start;
-    scan_index++;
-    // showStatus(current_state_point,1);
-    if (path_en)
-        publish_key_path(pubKeyPath);
 }
 
 void savePathAsTUM(const std::vector<gb_icp_ros::PoseData> &path, const std::string &filename)
@@ -1703,7 +1585,7 @@ int main(int argc, char **argv)
     keyPath.header.frame_id = "camera_init";
 
     /*** variables definition ***/
-    int effect_feat_num = 0, frame_num = 0;
+    int effect_feat_num = 0, scan_index = 0;
     bool flg_EKF_converged, EKF_stop_flg = 0;
     scan_index = 0;
     // 没有使用到
@@ -1768,6 +1650,7 @@ int main(int argc, char **argv)
     pubKeyPath = nh.advertise<nav_msgs::Path>("/key_path", 100000);
     voxel_map_pub = nh.advertise<visualization_msgs::MarkerArray>("/planes", 10000);
     stats_pub = nh.advertise<nav_msgs::Odometry>("/stats", 10000);
+    marker_cov_pub = nh.advertise<visualization_msgs::Marker>("/cov_marker", 100000);
 
     //------------------------------------------------------------------------------------------------------
     // statistic
@@ -1825,29 +1708,7 @@ int main(int argc, char **argv)
         ros::spinOnce();
         if (sync_packages(Measures))
         {
-            // if(index%2==0){
-            //     hide_execute();
-            // }else{
             execute();
-            //     if(index>100){
-            //             // 定义权重
-            //         double weight_kf = 0.5; // kf的权重
-            //         double weight_hide_kf = 0.5; // hide_kf的权重
-
-            //         state_ikfom avg_st;
-
-            //         avg_st.pos[0]= (hide_state_point.pos(0)+state_point.pos(0))/2.0f;
-            //         avg_st.pos[1]= (hide_state_point.pos(1)+state_point.pos(1))/2.0f;
-            //         avg_st.pos[2] = (hide_state_point.pos(2)+state_point.pos(2))/2.0f;
-            //         avg_st.rot.coeffs()[0] = (hide_geoQuat.x+geoQuat.x)/2.0f;
-            //         avg_st.rot.coeffs()[1] = (hide_geoQuat.y+geoQuat.y)/2.0f;
-            //         avg_st.rot.coeffs()[2] = (hide_geoQuat.z+geoQuat.z)/2.0f;
-            //         avg_st.rot.coeffs()[3]= (hide_geoQuat.w+geoQuat.w)/2.0f;
-
-            //         kf.change_x(avg_st);
-            //     }
-            // }
-            // index++;
         }
 
         status = ros::ok();

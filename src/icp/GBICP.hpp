@@ -48,6 +48,8 @@ extern int max_num_iterations;
 extern double min_motion_th_;
 extern double initial_threshold_;
 
+extern bool is_match_success_;
+
 struct ResultTuple
 {
     ResultTuple(std::size_t n)
@@ -126,7 +128,7 @@ public:
         const std::vector<Eigen::Vector3d> &target,
         double kernel);
     std::vector<Eigen::Vector3d> loadCloud(const std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map) const;
-    Vector3dVectorTuple RegisterFrame(const std::vector<Eigen::Vector3d> &frame, std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map);
+    bool RegisterFrame(const std::vector<Eigen::Vector3d> &frame, std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map);
     std::vector<Eigen::Vector3d> Preprocess(const std::vector<Eigen::Vector3d> &frame,
                                             double max_range,
                                             double min_range);
