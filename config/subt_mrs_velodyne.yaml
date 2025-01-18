@@ -4,7 +4,7 @@ common:
     # cmu_rc7/imu/data   --> Laurel_Caverns
     # /imu/data   --> Long_Corridor
     # cmu_sp1/imu/data   --> MultiFloor
-    imu_topic:  "/imu/data"
+    imu_topic:  "/cmu_sp1/imu/data"
     time_sync_en: false         # ONLY turn on when external time synchronization is really not possible
     icp_en: true
 
@@ -40,7 +40,7 @@ mapping:
                    0, 0, 1 ]
     merge_mode: true               
     merge_distance_threshold: 0.04
-    merge_bias_threshold: 1.0
+    merge_bias_threshold: 0.6
     merge_layers: 10            
 
 

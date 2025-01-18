@@ -23,6 +23,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <pcl/point_cloud.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <random>
 
 
 #define HASH_P 116101
@@ -82,6 +83,7 @@ typedef struct Plane
   float mid_eigen_value = 1;
   float max_eigen_value = 1;
   float d = 0;
+    int rgb[3] = {0, 0, 0};
   int points_size = 0;
 
   bool is_merge = false;
@@ -166,11 +168,13 @@ public:
   bool update_cov_enable_;
   bool update_enable_;
 
+  std::vector<VOXEL_LOC> merge_voxel_loc_;
+  VOXEL_LOC current_voxel_loc_;
   // 每个voxel有自己的color用于可视化
   std::vector<unsigned int> colors;
 
   OctoTree(int max_layer, int layer, std::vector<int> layer_point_size,
-           int max_point_size, int max_cov_points_size, float planer_threshold);
+           int max_point_size, int max_cov_points_size, float planer_threshold,VOXEL_LOC position);
 
   // check is plane , calc plane parameters including plane covariance
   void init_plane(const std::vector<pointWithCov> &points, Plane *plane);
@@ -182,6 +186,8 @@ public:
   void init_octo_tree();
 
   void cut_octo_tree();
+
+  OctoTree* clone();
 
   void UpdateOctoTree(const pointWithCov &pv);
 };

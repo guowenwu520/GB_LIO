@@ -7,10 +7,7 @@ int MERGE_LAYERS;
 int MAX_INTENSITY = 200;
 static int plane_id = 0;
 static int VOXEL_OFFSET[26][3] = {
-    {1, 0, 0},  {1, 0, 1},   {1, 0, -1},  {1, 1, 0},   {1, 1, 1},   {1, 1, -1},  {1, -1, 0},  {1, -1, 1},  {1, -1, -1},
-    {0, 1, 0},  {0, 1, 1},   {0, 1, -1},  {0, 0, 1},   {0, 0, -1},  {0, -1, 0},  {0, -1, 1},  {0, -1, -1},
-    {-1, 0, 0}, {-1, 0, 1},  {-1, 0, -1}, {-1, 1, 0},  {-1, 1, 1},  {-1, 1, -1}, {-1, -1, 0}, {-1, -1, 1}, {-1, -1, -1}
-};
+    {1, 0, 0}, {1, 0, 1}, {1, 0, -1}, {1, 1, 0}, {1, 1, 1}, {1, 1, -1}, {1, -1, 0}, {1, -1, 1}, {1, -1, -1}, {0, 1, 0}, {0, 1, 1}, {0, 1, -1}, {0, 0, 1}, {0, 0, -1}, {0, -1, 0}, {0, -1, 1}, {0, -1, -1}, {-1, 0, 0}, {-1, 0, 1}, {-1, 0, -1}, {-1, 1, 0}, {-1, 1, 1}, {-1, 1, -1}, {-1, -1, 0}, {-1, -1, 1}, {-1, -1, -1}};
 
 // 计算平面与视点的夹角cos值
 double Plane::calc_normal_viewpoint_cos(const Eigen::Vector3d &viewpoint)
@@ -91,7 +88,7 @@ void Plane::update_all_parameters_from_plane(Plane *new_plane_ptr)
 }
 
 OctoTree::OctoTree(int max_layer, int layer, std::vector<int> layer_point_size,
-                   int max_point_size, int max_cov_points_size, float planer_threshold)
+                   int max_point_size, int max_cov_points_size, float planer_threshold, VOXEL_LOC position)
     : max_layer_(max_layer), layer_(layer),
       layer_point_size_(layer_point_size), max_points_size_(max_point_size),
       max_cov_points_size_(max_cov_points_size),
@@ -114,7 +111,14 @@ OctoTree::OctoTree(int max_layer, int layer, std::vector<int> layer_point_size,
   }
   plane_ptr_ = new Plane;
   // plane_ptr_2_ = new Plane;
-
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_int_distribution<> dis(1, 255);
+  plane_ptr_->rgb[0] = dis(gen);
+  plane_ptr_->rgb[1] = dis(gen);
+  plane_ptr_->rgb[2] = dis(gen);
+  current_voxel_loc_ = position;
+  merge_voxel_loc_.push_back(position);
   colors.push_back(static_cast<unsigned int>(rand() % 256));
   colors.push_back(static_cast<unsigned int>(rand() % 256));
   colors.push_back(static_cast<unsigned int>(rand() % 256));
@@ -147,6 +151,9 @@ void OctoTree::init_plane(const std::vector<pointWithCov> &points, Plane *plane)
   plane->intensity = plane->intensity / plane->points_size;
   plane->covariance = plane->covariance / plane->points_size -
                       plane->center * plane->center.transpose();
+  plane->rgb[0] = 255;
+  plane->rgb[1] = 255;
+  plane->rgb[2] = int(plane->intensity) % 256;
   Eigen::EigenSolver<Eigen::Matrix3d> es(plane->covariance);
   Eigen::Matrix3cd evecs = es.eigenvectors();
   Eigen::Vector3cd evals = es.eigenvalues();
@@ -357,7 +364,7 @@ void OctoTree::cut_octo_tree()
     {
       leaves_[leafnum] = new OctoTree(
           max_layer_, layer_ + 1, layer_point_size_, max_points_size_,
-          max_cov_points_size_, planer_threshold_);
+          max_cov_points_size_, planer_threshold_, this->current_voxel_loc_);
       // 算出来的position实际上是voxel的左下角，中心点需要在原中心点的基础上加半个voxel的偏移
       // (2 * xyz[0] - 1)的结果是-1(如果在父中心点左侧)或者1(如果在父中心点右侧)
       // 注意在第一层时，quater是voxel_size/4, 所以这里(2 * xyz[0] - 1) * quater_length在第一层就是0.5个子voxel的大小
@@ -398,6 +405,77 @@ void OctoTree::cut_octo_tree()
       }
     }
   }
+}
+
+OctoTree *OctoTree::clone()
+{
+  VOXEL_LOC position(0, 0, 0);
+  // 创建一个新节点
+  OctoTree *cloned_tree = new OctoTree(
+      this->max_layer_,
+      this->layer_,
+      this->layer_point_size_,
+      this->max_points_size_,
+      this->max_cov_points_size_,
+      this->planer_threshold_, position);
+
+  // 克隆简单变量
+  cloned_tree->indoor_mode_ = this->indoor_mode_;
+  cloned_tree->octo_state_ = this->octo_state_;
+  cloned_tree->quater_length_ = this->quater_length_;
+  cloned_tree->planer_threshold_ = this->planer_threshold_;
+  cloned_tree->max_plane_update_threshold_ = this->max_plane_update_threshold_;
+  cloned_tree->update_size_threshold_ = this->update_size_threshold_;
+  cloned_tree->all_points_num_ = this->all_points_num_;
+  cloned_tree->new_points_num_ = this->new_points_num_;
+  cloned_tree->max_points_size_ = this->max_points_size_;
+  cloned_tree->max_cov_points_size_ = this->max_cov_points_size_;
+  cloned_tree->init_octo_ = this->init_octo_;
+  cloned_tree->update_cov_enable_ = this->update_cov_enable_;
+  cloned_tree->update_enable_ = this->update_enable_;
+
+  // 克隆坐标中心
+  for (int i = 0; i < 3; i++)
+  {
+    cloned_tree->voxel_center_[i] = this->voxel_center_[i];
+  }
+
+  // 克隆平面数据
+  if (this->plane_ptr_ != nullptr)
+  {
+    cloned_tree->plane_ptr_ = new Plane(*this->plane_ptr_);
+  }
+  else
+  {
+    cloned_tree->plane_ptr_ = nullptr;
+  }
+
+  // 克隆点数据
+  cloned_tree->temp_points_ = this->temp_points_;
+  cloned_tree->new_points_ = this->new_points_;
+  cloned_tree->all_points = this->all_points;
+  cloned_tree->merge_voxel_loc_.clear();
+  for (auto position_item : this->merge_voxel_loc_)
+  {
+    cloned_tree->merge_voxel_loc_.push_back(position_item);
+  }
+  // 克隆颜色数据
+  cloned_tree->colors = this->colors;
+
+  // 递归克隆子节点
+  for (int i = 0; i < 8; i++)
+  {
+    if (this->leaves_[i] != nullptr)
+    {
+      cloned_tree->leaves_[i] = this->leaves_[i]->clone(); // 递归克隆
+    }
+    else
+    {
+      cloned_tree->leaves_[i] = nullptr;
+    }
+  }
+
+  return cloned_tree;
 }
 
 void OctoTree::UpdateOctoTree(const pointWithCov &pv)
@@ -523,7 +601,7 @@ void OctoTree::UpdateOctoTree(const pointWithCov &pv)
         {
           leaves_[leafnum] = new OctoTree(
               max_layer_, layer_ + 1, layer_point_size_, max_points_size_,
-              max_cov_points_size_, planer_threshold_);
+              max_cov_points_size_, planer_threshold_, this->current_voxel_loc_);
           leaves_[leafnum]->layer_point_size_ = layer_point_size_;
           leaves_[leafnum]->voxel_center_[0] =
               voxel_center_[0] + (2 * xyz[0] - 1) * quater_length_;
@@ -671,7 +749,7 @@ void buildVoxelMap(const std::vector<pointWithCov> &input_points,
     {
       OctoTree *octo_tree =
           new OctoTree(max_layer, 0, layer_point_size, max_points_size,
-                       max_cov_points_size, planer_threshold);
+                       max_cov_points_size, planer_threshold, position);
       // 算出来的position实际上是voxel的左下角，中心点需要加0.5
       // TODO 确定为什么这里voxel_size要除以4
       feat_map[position] = octo_tree;
@@ -741,8 +819,8 @@ bool merge_plane(Plane *p1, Plane *p2)
   float m_bi = (MERGE_LAYERS - current_layer) / (MERGE_LAYERS * 1.0f);
   float merge_diff = (MERGE_LAYERS * 2.0f) / (current_layer * 1.0f);
   // cout << "merge_diff: " << merge_diff << " m_intensity: " << m_intensity << endl;
-   std::cout << merge_diff << " Plane1 distance: " << p1->distance << "  Plane2 distance: " << p2->distance << " bias th = " << MERGE_BIAS_THRESHOLD * m_bi<< " distance th  = " << MERGE_DISTANCE_THRESHOLD* m_bi << std::endl;
- if (m_intensity < merge_diff && (abd_bias[0] < MERGE_BIAS_THRESHOLD && abd_bias[1] < MERGE_BIAS_THRESHOLD) && m_distance < MERGE_DISTANCE_THRESHOLD)
+  // std::cout << merge_diff << " Plane1 distance: " << p1->distance << "  Plane2 distance: " << p2->distance << " bias th = " << MERGE_BIAS_THRESHOLD * m_bi << " distance th  = " << MERGE_DISTANCE_THRESHOLD * m_bi << std::endl;
+  if (m_intensity < merge_diff && (abd_bias[0] < MERGE_BIAS_THRESHOLD && abd_bias[1] < MERGE_BIAS_THRESHOLD) && m_distance < MERGE_DISTANCE_THRESHOLD)
   {
     // std::cout<<"Plane1 distance: "<<p1->distance<<"  Plane2 distance: "<<p2->distance<<" bias th = "<<MERGE_BIAS_THRESHOLD*m_bi <<" distance th  = "<<MERGE_DISTANCE_THRESHOLD*m_bi<<std::endl;
     Plane *merged = new Plane;
@@ -770,12 +848,13 @@ bool merge_plane(Plane *p1, Plane *p2)
 
     // merged->normal.normalize();
     // merged->covariance = (p1->covariance * p1->points_size + p2->covariance * p2->points_size) / total_points;
-     Eigen::Vector3d offset1 = p1->center - merged->center;
+    Eigen::Vector3d offset1 = p1->center - merged->center;
     Eigen::Vector3d offset2 = p2->center - merged->center;
 
     // 合并协方差矩阵
     merged->covariance = (p1->points_size * (p1->covariance + offset1 * offset1.transpose()) +
-                p2->points_size * (p2->covariance + offset2 * offset2.transpose()))/ total_points;
+                          p2->points_size * (p2->covariance + offset2 * offset2.transpose())) /
+                         total_points;
     // merged->covariance = p1->covariance  + p2->covariance ;
 
     merged->min_eigen_value = (p1->min_eigen_value * p1->points_size + p2->min_eigen_value * p2->points_size) / total_points;
@@ -816,21 +895,30 @@ void merge_voxel_map(std::unordered_map<VOXEL_LOC, OctoTree *> &feat_map, VOXEL_
     VOXEL_LOC near_position((int64_t)VOXEL_OFFSET[i][0] + position.x, (int64_t)VOXEL_OFFSET[i][1] + position.y,
                             (int64_t)VOXEL_OFFSET[i][2] + position.z);
     auto near_voxel = feat_map.find(near_position);
+    auto current_voxel = feat_map.find(position);
+    for (auto position_item : current_voxel->second->merge_voxel_loc_)
+    {
+      if (position_item == near_position)
+      {
+        return;
+      }
+    }
     if (near_voxel != feat_map.end() && near_voxel->second->plane_ptr_->is_plane)
     {
-      auto current_voxel = feat_map.find(position);
+
       bool is_merge_successs = merge_plane(current_voxel->second->plane_ptr_, near_voxel->second->plane_ptr_);
       if (is_merge_successs)
       {
-        merge_count++;
-
-        //  delete near_voxel->second->plane_ptr_;
-        //  near_voxel->second->plane_ptr_ = nullptr;
-        //  delete current_voxel->second->plane_ptr_;
-        //  current_voxel->second->plane_ptr_ = nullptr;
-
-        // std::cout << "near_voxel merge_radius " << near_voxel->second->plane_ptr_->radius << " merge_d " << near_voxel->second->plane_ptr_->d << std::endl;
-        // std::cout << "current_voxel merge_radius " << current_voxel->second->plane_ptr_->radius << " merge_d " << current_voxel->second->plane_ptr_->d << std::endl;
+        OctoTree *new_voxel = current_voxel->second->clone();
+        new_voxel->merge_voxel_loc_.push_back(near_position);
+        cout << "----------------------------------------------------" << endl;
+        for (auto position_item : new_voxel->merge_voxel_loc_)
+        {
+          cout << "merge voxel loc: " << position_item.x << "," << position_item.y << "," << position_item.z << endl;
+          feat_map.erase(position_item);
+          feat_map[position_item] = new_voxel;
+        }
+        cout << "----------------------------------------------------" << endl;
       }
     }
   }
@@ -882,7 +970,7 @@ void updateVoxelMapOMP(const std::vector<pointWithCov> &input_points,
       insert_count++;
       OctoTree *octo_tree =
           new OctoTree(max_layer, 0, layer_point_size, max_points_size,
-                       max_cov_points_size, planer_threshold);
+                       max_cov_points_size, planer_threshold, position);
       feat_map[position] = octo_tree;
       feat_map[position]->quater_length_ = voxel_size / 4;
       feat_map[position]->voxel_center_[0] = (0.5 + position.x) * voxel_size;
@@ -1586,6 +1674,7 @@ void pubVoxelMap(const std::unordered_map<VOXEL_LOC, OctoTree *> &voxel_map,
   {
     GetUpdatePlane(iter->second, pub_max_voxel_layer, pub_plane_list);
   }
+
   for (size_t i = 0; i < pub_plane_list.size(); i++)
   {
     V3D plane_cov = pub_plane_list[i].plane_cov.block<3, 3>(0, 0).diagonal();
@@ -1629,10 +1718,26 @@ void pubVocVoxelMap(const std::unordered_map<VOXEL_LOC, OctoTree *> &voxel_map,
   visualization_msgs::Marker marker;
   ros::Rate loop(500);
   std::vector<Plane> pub_plane_list;
+
+  std::vector<VOXEL_LOC> show_voxel_ed;
   for (auto iter = voxel_map.begin(); iter != voxel_map.end(); iter++)
   {
-    GetUpdatePlane(iter->second, pub_max_voxel_layer, pub_plane_list);
+    bool isNeedShow = true;
+    for (auto it : show_voxel_ed)
+    {
+      if (it == iter->second->current_voxel_loc_)
+      {
+        isNeedShow = false;
+        break;
+      }
+    }
+    if (isNeedShow)
+    {
+      show_voxel_ed.insert(show_voxel_ed.end(), iter->second->merge_voxel_loc_.begin(), iter->second->merge_voxel_loc_.end());
+      GetUpdatePlane(iter->second, pub_max_voxel_layer, pub_plane_list);
+    }
   }
+
   for (size_t i = 0; i < pub_plane_list.size(); i++)
   {
     double max_trace = 0.25;
@@ -1646,29 +1751,24 @@ void pubVocVoxelMap(const std::unordered_map<VOXEL_LOC, OctoTree *> &voxel_map,
     marker.action = visualization_msgs::Marker::ADD;
     Eigen::Matrix3d plane_cov = pub_plane_list[i].covariance;
     double trace = plane_cov.sum();
-    if (trace >= max_trace)
+    if (pub_plane_list[i].is_merge)
     {
-      trace = max_trace;
-    }
-    trace = trace * (1.0 / max_trace);
-    trace = pow(trace, pow_num);
-    uint8_t r, g, b;
-    mapJet(trace, 0, 1, r, g, b);
-    // if (!pub_plane_list[i].is_merge)
-    // {
-      // 设置 Marker 的颜色 (RGBA)
-      marker.color.r = r / 256.0;
-      marker.color.g = g / 256.0; // 绿色
-      marker.color.b = b / 256.0;
+      marker.color.r = pub_plane_list[i].rgb[0] / 256.0;
+      marker.color.g = pub_plane_list[i].rgb[1] / 256.0;
+      marker.color.b = pub_plane_list[i].rgb[2] / 256.0;
+      // marker.color.r = 0.0;
+      // marker.color.g = 1.0;
+      // marker.color.b = 0.0;
       marker.color.a = 1.0; // 不透明
-    // }
-    // else
-    // {
-    //   marker.color.r = 1.0;
-    //   marker.color.g = 0.0; // 绿色
-    //   marker.color.b = 0.0;
-    //   marker.color.a = 1.0; // 不透明
-    // }
+    }
+    else
+    {
+      marker.color.r = 0.0;
+      marker.color.g = 0.0;
+      marker.color.b = 1.0;
+      marker.color.a = 1.0; // 不透明
+      continue;
+    }
 
     Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> solver(plane_cov);
     Eigen::Vector3d eigenvalues = solver.eigenvalues();   // 特征值
@@ -1686,7 +1786,7 @@ void pubVocVoxelMap(const std::unordered_map<VOXEL_LOC, OctoTree *> &voxel_map,
     marker.pose.orientation.z = orientation.z();
     marker.pose.orientation.w = orientation.w();
     // 设置球体大小（使用特征值）
-    float scale_factor = sqrt(2*5.991); // 调整比例
+    float scale_factor = sqrt(2 * 5.991); // 调整比例
     marker.scale.x = scale_factor * std::sqrt(eigenvalues[0]);
     marker.scale.y = scale_factor * std::sqrt(eigenvalues[1]);
     marker.scale.z = scale_factor * std::sqrt(eigenvalues[2]);
